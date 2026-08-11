@@ -1,0 +1,28 @@
+# Local configuration and secrets. .env holds MAPBOX_TOKEN and the ASSET_N
+# roster; start from .env.example.
+.env
+.env.local
+
+# Everything the terrain pipeline downloads or derives. Regenerated on first
+# `docker compose up` from sites.conf + .env.
+out/
+
+# Generated terrain models and worlds. NOT committed, for two reasons:
+#  - the staleness check keys off out/<name>/terrain.json, which is ignored,
+#    so a clone rebuilds these on first run anyway and whatever was committed
+#    is overwritten;
+#  - albedo.png bakes in Mapbox/Maxar satellite imagery, and redistributing
+#    that needs a written agreement with Mapbox. Each user builds it from
+#    their own API key instead, which is the licensed path.
+sim/models/terrain_*
+sim/models/tower-*
+sim/worlds/*.world
+
+# MAVProxy droppings from SITL runs.
+mav.tlog*
+mav*.parm
+*.tlog
+*.tlog.raw
+
+__pycache__/
+*.pyc

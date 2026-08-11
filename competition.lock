@@ -1,0 +1,14 @@
+{
+  "fort_ross": {
+    "albedo_sha256": "29fe137d69f6c14a39adc52c9835f90f63ab0ea7a180fe357c35e2d654fe43ad",
+    "heightmap_sha256": "80e2ff5986b2c9c5dc5b36fae8f384100b99255bc2b88fbc29de216e23520213"
+  },
+  "pond_inlet": {
+    "albedo_sha256": "c5f4fe7ee028adc60f9e0f543d6c7bfc33a29464f5fdaeba181f1eb23d6493b2",
+    "heightmap_sha256": "7c7d46a58ff4e5107c56d7a7e061c5a49fe127758b25296117e0e47ec6441c81"
+  },
+  "resolute": {
+    "albedo_sha256": "50e022297f24f96c2ee4078b1c3f31e29caafc04a814d289662ec90a6129db1b",
+    "heightmap_sha256": "bc5e5e0caa6bf0894eef535822d3397d254781d3b6e562071d11c4443dd2ae5d"
+  }
+}

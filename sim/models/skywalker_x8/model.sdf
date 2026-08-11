@@ -1,0 +1,705 @@
+<?xml version="1.0"?>
+<!-- Ported from ArduPilot/SITL_Models (Gazebo Sim) to Gazebo Classic 11:
+     degrees="true" poses converted to radians, gz-sim-lift-drag-system ->
+     libLiftDragPlugin.so, gz-sim apply-joint-force and joint-state-publisher
+     dropped, ArduPilotPlugin -> libArduPilotPlugin.so with listen_addr and
+     fdm_port_out added and servo_min/servo_max removed (unsupported there).
+     Upstream: https://github.com/ArduPilot/SITL_Models -->
+<sdf version="1.7">
+  <model name="skywalker_x8">
+    <pose>0 0 0.246 0 0 0</pose>
+
+    <link name='base_link'>
+      <pose>0 0 0 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>4.5</mass>
+        <inertia>
+          <ixx>0.45</ixx>
+          <ixy>0</ixy>
+          <ixz>0.06</ixz>
+          <iyy>0.325</iyy>
+          <iyz>0</iyz>
+          <izz>0.75</izz>
+        </inertia>
+      </inertial>
+      <!-- Three skid contacts instead of one 0.80 x 2.15 x 0.2 box.
+           The box was the cause of two visible faults:
+             * It only reached z=-0.170, while the model-level <pose> lifts
+               base_link by 0.246 — so the aircraft floated 0.076 m above the
+               ground. The spheres reach exactly -0.246 and close that gap.
+             * A wide flat box puts its corner contacts on different facets of a
+               heightmap quantised to 0.99 m vertically and 6.35 m horizontally.
+               ODE then rocks between contact sets — the aircraft rolled rapidly
+               from wingtip to wingtip about the fuselage. A tripod is
+               statically determinate: three points always define one plane, so
+               there is no set to alternate between.
+           Zero restitution and explicit contact stiffness stop it bouncing. -->
+      <collision name="skid_nose">
+        <pose> 0.24  0.00 -0.201 0 0 0</pose>
+        <geometry><sphere><radius>0.045</radius></sphere></geometry>
+        <surface>
+          <friction><ode><mu>0.15</mu><mu2>0.15</mu2></ode></friction>
+          <contact><ode><min_depth>0.003</min_depth><kp>1e6</kp><kd>100</kd></ode></contact>
+          <bounce><restitution_coefficient>0</restitution_coefficient></bounce>
+        </surface>
+      </collision>
+      <collision name="skid_left">
+        <pose>-0.22  0.30 -0.201 0 0 0</pose>
+        <geometry><sphere><radius>0.045</radius></sphere></geometry>
+        <surface>
+          <friction><ode><mu>0.15</mu><mu2>0.15</mu2></ode></friction>
+          <contact><ode><min_depth>0.003</min_depth><kp>1e6</kp><kd>100</kd></ode></contact>
+          <bounce><restitution_coefficient>0</restitution_coefficient></bounce>
+        </surface>
+      </collision>
+      <collision name="skid_right">
+        <pose>-0.22 -0.30 -0.201 0 0 0</pose>
+        <geometry><sphere><radius>0.045</radius></sphere></geometry>
+        <surface>
+          <friction><ode><mu>0.15</mu><mu2>0.15</mu2></ode></friction>
+          <contact><ode><min_depth>0.003</min_depth><kp>1e6</kp><kd>100</kd></ode></contact>
+          <bounce><restitution_coefficient>0</restitution_coefficient></bounce>
+        </surface>
+      </collision>
+      <visual name='base_link_visual'>
+        <geometry>
+          <mesh>
+            <uri>model://skywalker_x8/meshes/x8_wing.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <specular>1.0 1.0 1.0</specular>
+          <pbr>
+            <metal>
+                <albedo_map>model://skywalker_x8/materials/textures/x8.tga</albedo_map>
+                <metalness>0.1</metalness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+      <visual name='m4'>
+        <pose>-0.361 0 0.0 0.000000 1.570796 0.000000</pose>
+        <geometry>
+          <cylinder>
+            <length>0.035</length>
+            <radius>0.02</radius>
+          </cylinder>
+        </geometry>
+        <material>
+          <ambient>1 1 1</ambient>
+          <diffuse>1 1 1</diffuse>
+          <specular>1 1 1</specular>
+          <pbr>
+            <metal>
+              <albedo_map>model://skywalker_x8/materials/textures/blue_metal/blue_metal_basecolor.jpg</albedo_map>
+              <metalness_map>model://skywalker_x8/materials/textures/blue_metal/blue_metal_metallic.jpg</metalness_map>
+              <normal_map>model://skywalker_x8/materials/textures/blue_metal/blue_metal_normal.jpg</normal_map>
+              <roughness_map>model://skywalker_x8/materials/textures/blue_metal/blue_metal_roughness.jpg</roughness_map>
+              <roughness>1.0</roughness>
+              <metalness>1.0</metalness> 
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+      <!-- save for debugging use -->
+      <!-- <visual name="cp_wing">
+        <pose>0.01 0 0 0 0 0</pose>
+        <geometry>
+          <sphere>
+            <radius>0.03</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>0 0 1</ambient>
+          <diffuse>0 0 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <visual name="cp_left_elevon">
+        <pose>-0.30 0.75 -0.005 0 0 0</pose>
+        <geometry>
+          <sphere>
+            <radius>0.03</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>1 0 0</ambient>
+          <diffuse>1 0 0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <visual name="cp_right_elevon">
+        <pose>-0.30 -0.75 -0.005 0 0 0</pose>
+        <geometry>
+          <sphere>
+            <radius>0.03</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>0 1 0</ambient>
+          <diffuse>0 1 0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <visual name="cp_left_winglet">
+        <pose>-0.36 1.04 0.08 0 0 0</pose>
+        <geometry>
+          <sphere>
+            <radius>0.03</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>1 0 0</ambient>
+          <diffuse>1 0 0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <visual name="cp_right_winglet">
+        <pose>-0.36 -1.04 0.08 0 0 0</pose>
+        <geometry>
+          <sphere>
+            <radius>0.03</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>0 1 0</ambient>
+          <diffuse>0 1 0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <visual name="cp_left_wing">
+        <pose>-0.14 0.5 -0.005 0 0 0</pose>
+        <geometry>
+          <sphere>
+            <radius>0.03</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>1 1 0</ambient>
+          <diffuse>1 1 0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual>
+      <visual name="cp_right_wing">
+        <pose>-0.14 -0.5 -0.005 0 0 0</pose>
+        <geometry>
+          <sphere>
+            <radius>0.03</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>1 1 0</ambient>
+          <diffuse>1 1 0</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+        </material>
+      </visual> -->
+      <!-- Survey camera in the nose. The airframe's forward axis is +X (the
+           pusher sits at -0.385 X and the wing panels span +-Y), and the chord
+           runs -0.40..+0.40, so 0.30 is at the nose. Pitched 8 deg down: enough to
+           bias the frame towards the surface for spotting, while keeping the
+           horizon in shot for orientation. 15 deg filled the view with water
+           at low level and left only a sliver of distance.
+           Fog renders into camera sensors, so visibility degrades for real. -->
+      <sensor name="fpv_camera" type="camera">
+        <pose>0.55 0 0.06 0 0.140 0</pose>
+        <always_on>0</always_on>
+        <update_rate>10</update_rate>
+        <visualize>true</visualize>
+        <camera name="fpv">
+          <horizontal_fov>1.204</horizontal_fov>
+          <image><width>640</width><height>360</height><format>R8G8B8</format></image>
+          <clip><near>0.1</near><far>1500</far></clip>
+        </camera>
+        <plugin name="camera_stream" filename="libCameraStreamPlugin.so">
+          <port>0</port>
+          <label>fixed-wing FPV</label>
+          <quality>70</quality>
+          <shrink>1</shrink>
+          <sleep_when_idle>0</sleep_when_idle>
+        </plugin>
+      </sensor>
+
+    </link>
+
+    
+
+    <link name='rotor_pusher'>
+      <pose>-0.385 0 0.0 0.000000 1.570796 0.000000</pose>
+      <inertial>
+        <mass>0.025</mass>
+        <inertia>
+          <ixx>9.75e-06</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.000166704</iyy>
+          <iyz>0</iyz>
+          <izz>0.000167604</izz>
+        </inertia>
+      </inertial>
+      <collision name='collision'>
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <cylinder>
+            <length>0.005</length>
+            <radius>0.065</radius>
+          </cylinder>
+        </geometry>
+      </collision>
+      <visual name='visual'>
+        <pose>0 0 0 0 0 0</pose>
+        <geometry>
+          <mesh>
+            <scale>0.8 0.8 0.8</scale>
+            <uri>model://skywalker_x8/meshes/iris_prop_ccw.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <specular>1.0 1.0 1.0</specular>
+          <pbr>
+            <metal>
+                <albedo_map>model://skywalker_x8/materials/textures/x8.tga</albedo_map>
+                <metalness>0.5</metalness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+    <joint name='rotor_pusher_joint' type='revolute'>
+      <child>rotor_pusher</child>
+      <parent>base_link</parent>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>-1e+16</lower>
+          <upper>1e+16</upper>
+        </limit>
+        <dynamics>
+          <damping>0.002</damping>
+        </dynamics>
+        <use_parent_model_frame>1</use_parent_model_frame>
+      </axis>
+    </joint>
+
+    <link name="left_elevon">
+      <inertial>
+        <mass>0.1</mass>
+        <inertia>
+          <ixx>0.000102319</ixx>
+          <ixy>0</ixy>
+          <iyy>0.00334417</iyy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+          <izz>0.003446072</izz>
+        </inertia>
+        <pose>-0.30 0.75 -0.005 0 0 0</pose>
+      </inertial>
+      <visual name='left_elevon_visual'>
+        <geometry>
+          <mesh>
+            <uri>model://skywalker_x8/meshes/x8_elevon_left.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <specular>1.0 1.0 1.0</specular>
+          <pbr>
+            <metal>
+                <albedo_map>model://skywalker_x8/materials/textures/x8.tga</albedo_map>
+                <metalness>0.1</metalness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+
+    <link name="right_elevon">
+      <inertial>
+        <mass>0.1</mass>
+        <inertia>
+          <ixx>0.000102319</ixx>
+          <ixy>0</ixy>
+          <iyy>0.00334417</iyy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+          <izz>0.003446072</izz>
+        </inertia>
+        <pose>-0.30 -0.75 -0.005 0 0 0</pose>
+      </inertial>
+      <visual name='right_elevon_visual'>
+        <geometry>
+          <mesh>
+            <uri>model://skywalker_x8/meshes/x8_elevon_right.dae</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>1.0 1.0 1.0</diffuse>
+          <specular>1.0 1.0 1.0</specular>
+          <pbr>
+            <metal>
+                <albedo_map>model://skywalker_x8/materials/textures/x8.tga</albedo_map>
+                <metalness>0.1</metalness>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+    </link>
+
+    <!-- Joint range -30/+30 deg. -->
+    <joint name='left_elevon_joint' type='revolute'>
+      <parent>base_link</parent>
+      <child>left_elevon</child>
+      <pose>-0.27 0.6 -0.005 0 0 0.265</pose>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-0.53</lower>
+          <upper>0.53</upper>
+        </limit>
+        <dynamics>
+          <damping>0.1</damping>
+        </dynamics>
+      </axis>
+    </joint>
+    
+    <!-- Joint range -30/+30 deg. -->
+    <joint name='right_elevon_joint' type='revolute'>
+      <parent>base_link</parent>
+      <child>right_elevon</child>
+      <pose>-0.27 -0.6 -0.005 0 0 -0.265</pose>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-0.53</lower>
+          <upper>0.53</upper>
+        </limit>
+        <dynamics>
+          <damping>0.1</damping>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <!-- sensors -->
+    <link name='imu_link'>
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.15</mass>
+        <inertia>
+          <ixx>0.00002</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.00002</iyy>
+          <iyz>0</iyz>
+          <izz>0.00002</izz>
+        </inertia>
+      </inertial>
+      <sensor name="imu_sensor" type="imu">
+        <pose>0 0 0 3.141593 0.000000 0.000000</pose>
+        <always_on>0</always_on>
+        <update_rate>1000.0</update_rate>
+      </sensor>
+    </link>
+    <joint name='skywalker_x8/imu_joint' type='revolute'>
+      <child>imu_link</child>
+      <parent>base_link</parent>
+      <axis>
+        <xyz>0 0 1</xyz>
+        <limit>
+          <lower>0</lower>
+          <upper>0</upper>
+          <effort>0</effort>
+          <velocity>0</velocity>
+        </limit>
+        <dynamics>
+          <damping>1.0</damping>
+        </dynamics>
+        <use_parent_model_frame>1</use_parent_model_frame>
+      </axis>
+    </joint>
+
+    <!-- plugins -->
+
+    <!-- rotor_pusher lift-drag -->
+    <plugin filename="libLiftDragPlugin.so" name="lift_drag_1">
+      <a0>0.30</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.0</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.02</area>
+      <air_density>1.2041</air_density>
+      <cp>0.074205 0 0</cp>
+      <forward>0 1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_pusher</link_name>
+    </plugin>
+    <plugin filename="libLiftDragPlugin.so" name="lift_drag_2">
+      <a0>0.30</a0>
+      <alpha_stall>1.4</alpha_stall>
+      <cla>4.2500</cla>
+      <cda>0.10</cda>
+      <cma>0.0</cma>
+      <cla_stall>-0.025</cla_stall>
+      <cda_stall>0.0</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <area>0.02</area>
+      <air_density>1.2041</air_density>
+      <cp>-0.074205 0 0</cp>
+      <forward>0 -1 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>rotor_pusher</link_name>
+    </plugin>
+    <!-- wing lift-drag -->
+    <plugin filename="libLiftDragPlugin.so" name="lift_drag_3">
+      <a0>0.13</a0>
+      <cla>3.7</cla>
+      <cda>0.06417112299</cda>
+      <cma>0.0</cma>
+      <alpha_stall>0.3391428111</alpha_stall>
+      <cla_stall>-3.85</cla_stall>
+      <cda_stall>-0.9233984055</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <cp>0.01 0 0</cp>
+      <area>0.80</area>
+      <air_density>1.2041</air_density>
+      <forward>1 0 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>base_link</link_name>
+    </plugin>
+    <!-- left_elevon lift-drag -->
+    <plugin filename="libLiftDragPlugin.so" name="lift_drag_4">
+      <a0>0.15</a0>
+      <cla>6.8</cla>
+      <cda>0.06417112299</cda>
+      <cma>0.0</cma>
+      <alpha_stall>0.6391428111</alpha_stall>
+      <cla_stall>-3.85</cla_stall>
+      <cda_stall>-0.9233984055</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <cp>-0.30 0.75 -0.005</cp>
+      <area>0.10</area>
+      <air_density>1.2041</air_density>
+      <forward>1 0 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>base_link</link_name>
+      <control_joint_name>left_elevon_joint</control_joint_name>
+      <control_joint_rad_to_cl>-5.0</control_joint_rad_to_cl>
+    </plugin>
+    <!-- right_elevon lift-drag -->
+    <plugin filename="libLiftDragPlugin.so" name="lift_drag_5">
+      <a0>0.15</a0>
+      <cla>6.8</cla>
+      <cda>0.06417112299</cda>
+      <cma>0.0</cma>
+      <alpha_stall>0.6391428111</alpha_stall>
+      <cla_stall>-3.85</cla_stall>
+      <cda_stall>-0.9233984055</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <cp>-0.30 -0.75 -0.005</cp>
+      <area>0.10</area>
+      <air_density>1.2041</air_density>
+      <forward>1 0 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>base_link</link_name>
+      <control_joint_name>right_elevon_joint</control_joint_name>
+      <control_joint_rad_to_cl>-5.0</control_joint_rad_to_cl>
+    </plugin>
+    <!-- left_winglet lift-drag -->
+    <plugin filename="libLiftDragPlugin.so" name="lift_drag_6">
+      <a0>0.0</a0>
+      <cla>4.752798721</cla>
+      <cda>0.6417112299</cda>
+      <cma>0.0</cma>
+      <alpha_stall>0.3391428111</alpha_stall>
+      <cla_stall>-3.85</cla_stall>
+      <cda_stall>-0.9233984055</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <cp>-0.36 1.04 0.08</cp>
+      <area>0.12</area>
+      <air_density>1.2041</air_density>
+      <forward>1 0 0</forward>
+      <upward>0 1 0</upward>
+      <link_name>base_link</link_name>
+    </plugin>
+    <!-- right_winglet lift-drag -->
+    <plugin filename="libLiftDragPlugin.so" name="lift_drag_7">
+      <a0>0.0</a0>
+      <cla>4.752798721</cla>
+      <cda>0.6417112299</cda>
+      <cma>0.0</cma>
+      <alpha_stall>0.3391428111</alpha_stall>
+      <cla_stall>-3.85</cla_stall>
+      <cda_stall>-0.9233984055</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <cp>-0.36 -1.04 0.08</cp>
+      <area>0.12</area>
+      <air_density>1.2041</air_density>
+      <forward>1 0 0</forward>
+      <upward>0 -1 0</upward>
+      <link_name>base_link</link_name>
+    </plugin>
+
+    <!-- original from standard_vtol -->
+    <!-- left_wing_lift-drag -->
+    <!-- <plugin filename="libLiftDragPlugin.so" name="lift_drag_8">
+      <a0>0.05984281113</a0>
+      <cla>4.752798721</cla>
+      <cda>0.6417112299</cda>
+      <cma>0.0</cma>
+      <alpha_stall>0.3391428111</alpha_stall>
+      <cla_stall>-3.85</cla_stall>
+      <cda_stall>-0.9233984055</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <cp>-0.05 0.3 0.05</cp>
+      <area>0.50</area>
+      <air_density>1.2041</air_density>
+      <forward>1 0 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>base_link</link_name>
+      <control_joint_name>left_elevon_joint</control_joint_name>
+      <control_joint_rad_to_cl>-1.0</control_joint_rad_to_cl>
+    </plugin> -->
+    <!-- right_wing_lift-drag -->
+    <!-- <plugin filename="libLiftDragPlugin.so" name="lift_drag_9">
+      <a0>0.05984281113</a0>
+      <cla>4.752798721</cla>
+      <cda>0.6417112299</cda>
+      <cma>0.0</cma>
+      <alpha_stall>0.3391428111</alpha_stall>
+      <cla_stall>-3.85</cla_stall>
+      <cda_stall>-0.9233984055</cda_stall>
+      <cma_stall>0.0</cma_stall>
+      <cp>-0.05 -0.3 0.05</cp>
+      <area>0.50</area>
+      <air_density>1.2041</air_density>
+      <forward>1 0 0</forward>
+      <upward>0 0 1</upward>
+      <link_name>base_link</link_name>
+      <control_joint_name>right_elevon_joint</control_joint_name>
+      <control_joint_rad_to_cl>-1.0</control_joint_rad_to_cl>
+    </plugin> -->
+
+
+    <plugin name="ardupilot_plugin" filename="libArduPilotPlugin.so">
+      <!-- Port settings -->
+      <listen_addr>10.23.0.5</listen_addr>
+        <fdm_addr>10.23.0.101</fdm_addr>
+      <fdm_port_in>9012</fdm_port_in>
+        <fdm_port_out>9013</fdm_port_out>
+      <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
+      <lock_step>1</lock_step>
+
+      <modelXYZToAirplaneXForwardZDown>0 0 0 3.141593 0.000000 0.000000</modelXYZToAirplaneXForwardZDown>
+      <gazeboXYZToNED>0 0 0 3.141593 0.000000 1.570796</gazeboXYZToNED>
+
+      <!-- Sensors -->
+      <imuName>imu_sensor</imuName>
+
+      <!--
+          incoming control command [0, 1]
+          so offset it by 0 to get [0, 1]
+          and divide max target by 1.
+          offset = 0
+          multiplier = 838 max rpm / 1 = 838
+        -->
+
+      <!-- 
+          SERVO3_FUNCTION   70 (Throttle)
+          SERVO3_MAX        2000
+          SERVO3_MIN        1000
+          SERVO3_REVERSED   0
+          SERVO3_TRIM       1000
+       -->
+      <control channel="2">
+        <jointName>rotor_pusher_joint</jointName>
+        <!-- useForce 0 — set the joint velocity directly, no PID:
+               force PID. The rotor's inertia about its spin axis is 9.75e-6,
+               and a force loop with p_gain 0.2 at a 1/150 s step gives
+               p*dt/I = 137 — it diverges every step, saturates on cmd_max and
+               flips sign. That was the prop rocking back and forth, and its
+               reaction torque was walking the airframe across the ground. The
+               elevons keep their force PID: their hinge inertia is 0.0033, some
+               340x larger, so that loop is comfortably stable.
+               Thrust is unaffected — it comes from the blades' lift-drag, which
+               depends on blade velocity, and that is now exactly the commanded
+               value rather than an oscillation around it. -->
+          <!-- useForce 0: set the joint velocity directly, no force PID. The rotor
+               inertia is 9.75e-6 and a force loop at p_gain 0.2 with a 1/150 s
+               step gives p*dt/I = 137 — it diverges every step and saturates,
+               which is the prop visibly rocking. Detuning p_gain to a stable
+               0.001 removes the jitter but starves the prop of thrust, so the
+               aircraft will not accelerate. Driving velocity directly gives
+               both: exact commanded RPM, no loop to go unstable.
+               The axis is left at upstream's 0 0 1 — the blade lift-drag
+               geometry is built around that reading in Classic. -->
+          <useForce>0</useForce>
+        <multiplier>838</multiplier>
+        <offset>0</offset>
+        <type>VELOCITY</type>
+        <p_gain>0.20</p_gain>
+        <i_gain>0</i_gain>
+        <d_gain>0</d_gain>
+        <i_max>0</i_max>
+        <i_min>0</i_min>
+        <cmd_max>2.5</cmd_max>
+        <cmd_min>-2.5</cmd_min>
+      </control>
+
+      <!-- 
+          SERVO1_FUNCTION   77 (Elevon Left)
+          SERVO1_MAX        1900
+          SERVO1_MIN        1100
+          SERVO1_REVERSED   0
+          SERVO1_TRIM       1500
+
+          pwm:          =>  [1100, 1900] 
+          input:        =>  [0, 1]
+          offset: -0.5  =>  [-0.5, 0.5]
+          scale:   2.0  =>  [-1.0, 1.0]
+          scale: 0.524  =>  [-0.524, 0.524]
+       -->
+      <control channel="0">
+        <jointName>left_elevon_joint</jointName>
+        <useForce>1</useForce>
+        <multiplier>1.048</multiplier>
+        <offset>-0.5</offset>
+        <type>POSITION</type>
+        <p_gain>10.0</p_gain>
+        <i_gain>0</i_gain>
+        <d_gain>0</d_gain>
+        <i_max>0</i_max>
+        <i_min>0</i_min>
+        <cmd_max>2.5</cmd_max>
+        <cmd_min>-2.5</cmd_min>
+      </control>
+
+      <!-- 
+          SERVO2_FUNCTION   78 (Elevon Right)
+          SERVO2_MAX        1900
+          SERVO2_MIN        1100
+          SERVO2_REVERSED   0
+          SERVO2_TRIM       1500
+       -->
+      <control channel="1">
+        <jointName>right_elevon_joint</jointName>
+        <useForce>1</useForce>
+        <multiplier>1.048</multiplier>
+        <offset>-0.5</offset>
+        <type>POSITION</type>
+        <p_gain>10.0</p_gain>
+        <i_gain>0</i_gain>
+        <d_gain>0</d_gain>
+        <i_max>0</i_max>
+        <i_min>0</i_min>
+        <cmd_max>2.5</cmd_max>
+        <cmd_min>-2.5</cmd_min>
+      </control>
+
+    </plugin>
+  </model>
+</sdf>

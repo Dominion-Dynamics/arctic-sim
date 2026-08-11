@@ -1,0 +1,30 @@
+# GPU overlay for the sim container. Used on the EC2 box only:
+#
+#   docker compose -f docker-compose.yml -f deploy/aws/docker-compose.gpu.yml up -d
+#
+# Only `sim` changes. The SITL containers are pure CPU — ArduPilot renders
+# nothing — and the terrain builder is GDAL, which is also CPU here.
+#
+# The point of this file is one thing: get gzserver onto hardware GLX. That
+# needs the driver injected into the container AND an X server that is actually
+# on the card. The container cannot supply the second one, so it borrows the
+# host's socket.
+services:
+  sim:
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      # `graphics` and `display` are the ones that matter and are NOT in the
+      # default set. Without them the toolkit injects CUDA and nothing else,
+      # the container has no libGLX_nvidia, glvnd silently falls back to mesa,
+      # and you get llvmpipe on a machine with a T4 in it.
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display
+      # Tell glvnd which vendor to load before it has to guess.
+      __GLX_VENDOR_LIBRARY_NAME: nvidia
+      # Read by sim/entrypoint.sh: do not start Xvfb, use the host's Xorg.
+      USE_HOST_X: "1"
+      HOST_DISPLAY: ":0"
+    volumes:
+      # The X server itself runs on the host (arctic-xorg.service). This is the
+      # only channel into it; the server has -nolisten tcp.
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw

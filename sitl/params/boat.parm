@@ -1,0 +1,12 @@
+# USV camera boat (sim/models/usv_camera_boat), flown as ArduRover.
+#
+# ArduPilot has no boat vehicle: a boat is a Rover with FRAME_CLASS 2, which
+# switches it to a surface-vessel motion model (no reverse-steering assumptions,
+# and it will not try to pivot like a wheeled rover).
+FRAME_CLASS 2
+
+# Skid steering. Matches the USV's thruster channels:
+#   SERVO1 ThrottleLeft  (73) -> control channel 0 -> port thruster
+#   SERVO3 ThrottleRight (74) -> control channel 2 -> stbd thruster
+SERVO1_FUNCTION 73
+SERVO3_FUNCTION 74

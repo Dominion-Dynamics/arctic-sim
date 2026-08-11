@@ -1,0 +1,238 @@
+# arctic-sim — real arctic terrain + ArduPilot SITL + gzweb, no ROS.
+#
+#   cp .env.example .env && docker compose up
+#
+# Order of operations: `terrain` downloads and builds the world, exits, and only
+# then does `sim` start. `sitl` waits on `sim` because ArduPilot probes Gazebo's
+# plugin port at boot.
+#
+# Subnet is 10.23.0.0/24 to stay clear of Damn Vulnerable Drone, which already
+# occupies 10.13.0.0/24. iris_with_ardupilot ships with the ArduPilotPlugin
+# endpoints hardcoded, so terrain/make_world.py rewrites its listen_addr and
+# fdm_addr to match GAZEBO_IP / SITL_IP below.
+
+# Shared by every asset container. They differ only in which asset they are and
+# what address they answer on.
+x-asset: &asset
+  build:
+    context: .
+    dockerfile: sitl/Dockerfile
+    args:
+      VEHICLES: ${SITL_VEHICLES:-copter rover plane antennatracker}
+  # One tag for all of them, so ArduPilot is compiled once and every other
+  # asset is a cache hit rather than another full build.
+  image: arctic-sim-sitl:latest
+  depends_on:
+    - sim
+  restart: unless-stopped
+  volumes:
+    - ./out:/out:ro
+  environment: &asset-env
+    WORLD_NAME: ${SITE_NAME:-fort_ross}
+    GAZEBO_HOST: 10.23.0.5
+    PHYSICS_RATE: ${PHYSICS_RATE:-250}
+    SPEEDUP: ${SPEEDUP:-1}
+
+services:
+  terrain:
+    image: ghcr.io/osgeo/gdal:ubuntu-small-latest
+    container_name: arctic-terrain
+    volumes:
+      - ./terrain:/terrain:ro
+      # sites.conf lists every site to build; out/ holds them all.
+      - ./sites.conf:/sites.conf:ro
+      - ./out:/out
+      - ./sim/models:/sim/models
+      - ./sim/worlds:/sim/worlds
+    env_file:
+      - .env
+    environment:
+      ARCTIC_OUT: /out
+      ARCTIC_OUT_ROOT: /out
+      ARCTIC_SIM_ROOT: /sim
+      GAZEBO_IP: 10.23.0.5
+      SITL_IP: 10.23.0.2
+      SITE_NAME: ${SITE_NAME:-fort_ross}
+      SITE_LAT: ${SITE_LAT:-71.991960}
+      SITE_LON: ${SITE_LON:--94.822428}
+      SITE_EXTENT: ${SITE_EXTENT:-6500}
+      SITE_GRID: ${SITE_GRID:-1025}
+      VEHICLE_MODEL: ${VEHICLE_MODEL:-iris_with_ardupilot}
+      FORCE_TERRAIN: ${FORCE_TERRAIN:-}
+      PHYSICS_RATE: ${PHYSICS_RATE:-250}
+      CAMERAS: ${CAMERAS:-1}
+      SHADOWS: ${SHADOWS:-0}
+      IMAGERY_SOURCE: ${IMAGERY_SOURCE:-mapbox}
+      MAPTILER_KEY: ${MAPTILER_KEY:-}
+      MAPBOX_TOKEN: ${MAPBOX_TOKEN:-}
+      TILE_ZOOM: ${TILE_ZOOM:-14}
+      SHIP: ${SHIP:-1}
+      SHIP_MODEL: ${SHIP_MODEL:-fishing_vessel}
+      SHIP_MOVING: ${SHIP_MOVING:-1}
+      SHIP_SPEED: ${SHIP_SPEED:-3.0}
+      SHIP_START: ${SHIP_START:-fixed}
+      SHIP_START_SEED: ${SHIP_START_SEED:-0}
+      SHIP_START_AT: ${SHIP_START_AT:-}
+      COURSE_SEED: ${COURSE_SEED:-0}
+      COURSE_LENGTH: ${COURSE_LENGTH:-9000}
+      FOG: ${FOG:-1}
+      FOG_DENSITY: ${FOG_DENSITY:-0.0008}
+      FOG_COLOUR: ${FOG_COLOUR:-0.80 0.84 0.88}
+      FOG_TYPE: ${FOG_TYPE:-exp2}
+      IMAGERY_SIZE: ${IMAGERY_SIZE:-2048}
+      IMAGERY_MONTHS: ${IMAGERY_MONTHS:-6,7,8}
+      IMAGERY_CLOUD: ${IMAGERY_CLOUD:-5}
+    command: ["bash", "/terrain/run.sh"]
+    networks:
+      arctic:
+        ipv4_address: 10.23.0.10
+
+  sim:
+    build:
+      context: .
+      dockerfile: sim/Dockerfile
+    container_name: arctic-sim
+    depends_on:
+      terrain:
+        condition: service_completed_successfully
+    environment:
+      WORLD_NAME: ${SITE_NAME:-fort_ross}
+      GZWEB_REDEPLOY: ${GZWEB_REDEPLOY:-0}
+      CONTROL_PORT: ${CONTROL_PORT:-8090}
+    volumes:
+      # Only models/ and worlds/ are mounted. Mounting all of ./sim would
+      # shadow the image's /sim/gzweb and wipe out its node_modules.
+      - ./sim/models:/sim/models
+      - ./sim/worlds:/sim/worlds
+    ports:
+      # SIM_BIND narrows these to one interface — set it to the tailnet address
+      # on a cloud host so nothing is reachable from the instance's public IP
+      # even if a security group rule is added by mistake.
+      - "${SIM_BIND:-0.0.0.0}:${GZWEB_PORT:-8080}:8080"
+      # MJPEG camera feeds. The sensors render in this container, so all
+      # four streams are served from here; the per-asset relay for VPN
+      # isolation comes later. Slot-keyed: 8600 + 10*slot.
+      - "${SIM_BIND:-0.0.0.0}:8600-8650:8600-8650"
+    networks:
+      arctic:
+        ipv4_address: 10.23.0.5
+
+  control:
+    build:
+      context: .
+      dockerfile: control/Dockerfile
+    container_name: arctic-control
+    depends_on:
+      - sim
+    environment:
+      SIM_CONTAINER: arctic-sim
+      REPO_DIR: ${PWD}
+      # compose needs the project name to find the right containers from inside
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-arctic-sim}
+    working_dir: ${PWD}
+    volumes:
+      # Mounted at the SAME absolute path as on the host: compose running in
+      # here hands relative bind paths to the host daemon, so /repo would make
+      # it look for /repo on the host and fail with "mounts denied".
+      - ${PWD}:${PWD}
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      # Loopback by default: this can restart containers and rewrite .env, and
+      # it holds the docker socket, so reaching it is equivalent to root on the
+      # host. Overridable only because a remote deployment has to put it
+      # somewhere the browser can reach — and then it must be an address on a
+      # private network, never 0.0.0.0. See deploy/aws/README.md.
+      - "${CONTROL_BIND:-127.0.0.1}:${CONTROL_PORT:-8090}:8090"
+    networks:
+      arctic:
+        ipv4_address: 10.23.0.20
+
+
+# --- Assets -----------------------------------------------------------------
+# One container per thing you control over MAVLink. Declared statically, not
+# generated, so `docker compose up --build` works on a fresh clone.
+#
+# Each asset answers on its OWN IP using ArduPilot's stock ports, so there is no
+# stride arithmetic: every vehicle is at <ip>:5760 and <ip>:14550. The host-side
+# ports are strided only because host ports cannot collide.
+#
+# Which of these actually fly comes from ASSET_N in .env; the NAME there must
+# match the service name here. A container whose role is not in the roster idles
+# with a message instead of starting a vehicle.
+#
+# Addresses mirror terrain/fleet.py SLOTS -- change both together.
+
+  # quadcopter: ArduCopter
+  quadcopter:
+    <<: *asset
+    container_name: arctic-sim-quadcopter
+    environment:
+      <<: *asset-env
+      ASSET_NAME: quadcopter
+    ports:
+      # host -> container. In-container ports are always the stock ones,
+      # because the asset runs as ArduPilot instance 0 on its own IP.
+      - "5760:5760"           # MAVLink TCP
+      - "14550:14550/udp"       # GCS
+      - "14551:14551/udp"     # second GCS / logging
+    networks:
+      arctic:
+        ipv4_address: 10.23.0.100
+
+  # fixed-wing: ArduPlane (model not bundled yet)
+  fixed-wing:
+    <<: *asset
+    container_name: arctic-sim-fixed-wing
+    environment:
+      <<: *asset-env
+      ASSET_NAME: fixed-wing
+    ports:
+      # host -> container. In-container ports are always the stock ones,
+      # because the asset runs as ArduPilot instance 0 on its own IP.
+      - "5770:5760"           # MAVLink TCP
+      - "14560:14550/udp"       # GCS
+      - "14561:14551/udp"     # second GCS / logging
+    networks:
+      arctic:
+        ipv4_address: 10.23.0.101
+
+  # tower-1: AntennaTracker, EO/IR camera mast
+  tower-1:
+    <<: *asset
+    container_name: arctic-sim-tower-1
+    environment:
+      <<: *asset-env
+      ASSET_NAME: tower-1
+    ports:
+      # host -> container. In-container ports are always the stock ones,
+      # because the asset runs as ArduPilot instance 0 on its own IP.
+      - "5790:5760"           # MAVLink TCP
+      - "14580:14550/udp"       # GCS
+      - "14581:14551/udp"     # second GCS / logging
+    networks:
+      arctic:
+        ipv4_address: 10.23.0.103
+
+  # tower-2: AntennaTracker, EO/IR camera mast
+  tower-2:
+    <<: *asset
+    container_name: arctic-sim-tower-2
+    environment:
+      <<: *asset-env
+      ASSET_NAME: tower-2
+    ports:
+      # host -> container. In-container ports are always the stock ones,
+      # because the asset runs as ArduPilot instance 0 on its own IP.
+      - "5800:5760"           # MAVLink TCP
+      - "14590:14550/udp"       # GCS
+      - "14591:14551/udp"     # second GCS / logging
+    networks:
+      arctic:
+        ipv4_address: 10.23.0.104
+
+networks:
+  arctic:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.23.0.0/24

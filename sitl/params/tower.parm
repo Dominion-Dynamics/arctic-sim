@@ -1,0 +1,28 @@
+# AntennaTracker defaults for the camera towers.
+#
+# PITCH_MIN/PITCH_MAX must match the tilt joint limits in terrain/tower.py.
+# ArduPilot maps its full servo range onto this span, and the Gazebo plugin
+# maps that same servo range onto the joint range -- so if the two disagree the
+# tracker either cannot reach its limits or grinds against a hard stop.
+#
+# Positive pitch is up in ArduPilot; the joint's positive direction is down.
+# -70 keeps the camera out of its own mast, +45 is enough to follow an aircraft
+# overhead without the head folding back on the fork.
+PITCH_MIN -70
+PITCH_MAX 45
+YAW_RANGE 360
+
+# SITL has no calibrated accels or compass, so the stock prearm set can never
+# pass. A tower has no propulsion to make safe.
+ARMING_CHECK 0
+
+# Boot into MANUAL, not AUTO.
+#
+# AUTO with no tracked vehicle emits PWM 0 on both channels. SIM_Gazebo
+# normalises PWM as (pwm-1000)/1000, so 0 becomes a command of -1.0, and the
+# plugin's target = multiplier*(offset+cmd) then lands far outside the joint
+# range. The position loop grinds against the hard stop and the whole head
+# buzzes. MANUAL holds 1500/1500 -- pan centred, tilt mid-range -- and takes
+# pan/tilt commands over MAVLink, which is what a camera tower wants anyway.
+# Switch to AUTO from a GCS once there is a vehicle to track.
+INITIAL_MODE 0

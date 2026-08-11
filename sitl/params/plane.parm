@@ -1,0 +1,70 @@
+# Skywalker X8 flying wing (sim/models/skywalker_x8).
+#
+# The gazebo-zephyr frame is used because it is the only ArduPlane frame marked
+# `external`, i.e. the only one that hands flight dynamics to Gazebo. Its
+# defaults are for the Zephyr though, and they reverse both elevons — the X8
+# model's ArduPilotPlugin expects them un-reversed, so left/right roll and pitch
+# would come out backwards without these.
+SERVO1_FUNCTION 77
+SERVO2_FUNCTION 78
+SERVO1_REVERSED 0
+SERVO2_REVERSED 0
+
+# Travel limits matching the <control> blocks in the model.
+SERVO1_MIN 1100
+SERVO1_MAX 1900
+SERVO1_TRIM 1500
+SERVO2_MIN 1100
+SERVO2_MAX 1900
+SERVO2_TRIM 1500
+
+# Pusher motor.
+SERVO3_FUNCTION 70
+SERVO3_MIN 1000
+SERVO3_MAX 2000
+SERVO3_TRIM 1000
+
+# No airspeed sensor on the model.
+ARSPD_TYPE 0
+
+# Ground takeoff on a belly-lander. Do not wait for a hand-launch acceleration
+# spike, and hold the nose down until there is enough speed to rotate — without
+# this the wing tries to lift before it is flying and drops a tip.
+TKOFF_THR_MINACC 0
+TKOFF_THR_DELAY 0
+TKOFF_ROTATE_SPD 12
+
+# --- Cruise speed -----------------------------------------------------------
+# There is no airspeed sensor on the model (ARSPD_TYPE 0), so ArduPlane flies
+# on synthetic airspeed from GPS + attitude. These bound it low: the X8 will
+# cruise around 14 m/s rather than the ~20+ the defaults aim for.
+# Slow, but not underpowered: capping THR_MAX at 75 and trimming to 35 left it
+# unable to sustain the climb — it reached 45 m, ran out of energy and sank
+# back onto the strip. Full throttle stays available for climbing; the cruise
+# speed is set by the airspeed targets, not by starving the motor.
+TRIM_ARSPD_CM 1500
+ARSPD_FBW_MIN 13
+ARSPD_FBW_MAX 22
+TRIM_THROTTLE 45
+THR_MAX 100
+
+# --- Holding pattern --------------------------------------------------------
+# TAKEOFF climbs to TKOFF_ALT and then holds; LOITER circles wherever it is.
+# A 120 m radius at ~14 m/s is a comfortable ~55 s orbit for this wing.
+TKOFF_ALT 60
+WP_LOITER_RAD 120
+LOITER_RAD 120
+
+# --- Wings level off the strip ----------------------------------------------
+# It was dropping the left wing on the climb-out. Hold wings level until well
+# clear of the ground, and bias roll slightly right to cancel the residual.
+TKOFF_LVL_ALT 25
+RLL2SRV_RMAX 45
+
+# No terrain database. SITL has no terrain tiles to consult, and the altitude
+# reaching ArduPilot is inflated by the world's ground height (SIM_Gazebo adds
+# home_alt to a Gazebo z that already measures from sea level). The terrain
+# subsystem then logs "Terrain: clamping offset 152 to 30" and GUIDED takeoff
+# is refused. Nothing here needs terrain following.
+TERRAIN_ENABLE 0
+TERRAIN_FOLLOW 0

@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""Check MAVLink access to every asset. Standard library only — no pymavlink.
+
+    ./mavcheck            every declared role
+    ./mavcheck tower-1    just one
+    ./mavcheck -w         watch, re-checking every 5 s
+
+The endpoints are MAVProxy `udpin` sockets, i.e. listeners. A client has to
+transmit before it will receive anything, which is why this sends a datagram
+first. Point a GCS at one in "listen" mode and both ends sit waiting in silence
+— that is the single most common way to conclude a vehicle is dead when it is
+fine.
+
+Only the MAVLink framing is parsed (magic byte, system id). That is enough to
+answer "is this vehicle reachable and who is it", without a dependency.
+"""
+import socket
+import sys
+import time
+import pathlib
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "terrain"))
+from fleet import SLOTS, address  # noqa: E402
+
+# MAV_TYPE values we expect to meet here.
+MAV_TYPE = {0: "generic", 1: "fixed-wing", 2: "quadrotor", 5: "antenna-tracker",
+            10: "ground-rover", 11: "surface-boat"}
+
+
+def probe(port, timeout=4.0):
+    """Return (version, sysid, mavtype, nbytes) or None."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(timeout)
+    seen = None
+    try:
+        s.sendto(b"\x00", ("127.0.0.1", port))
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            data, _ = s.recvfrom(2048)
+            if not data:
+                continue
+            magic = data[0]
+            if magic == 0xFD:      # MAVLink 2: len,inc,cmp,seq,sys,comp,msgid[3]
+                ver, sysid, msgid = "v2", data[5], data[7] | (data[8] << 8) | (data[9] << 16)
+                payload = data[10:]
+            elif magic == 0xFE:    # MAVLink 1: len,seq,sys,comp,msgid
+                ver, sysid, msgid = "v1", data[3], data[5]
+                payload = data[6:]
+            else:
+                continue
+            # HEARTBEAT (id 0) carries the vehicle type at payload byte 4.
+            # Keep reading until one arrives rather than reporting whatever
+            # frame happened to land first — HEARTBEAT is what identifies the
+            # vehicle, and at 1 Hz it is never far away.
+            if msgid == 0 and len(payload) > 4:
+                return ver, sysid, payload[4], len(data)
+            seen = (ver, sysid, None, len(data))
+        return seen
+    except socket.timeout:
+        return seen
+    finally:
+        s.close()
+    return seen
+
+
+def check(role, watch=False):
+    a = address(SLOTS[role])
+    r = probe(a["host_gcs"])
+    if r:
+        ver, sysid, mtype, n = r
+        who = MAV_TYPE.get(mtype, f"type {mtype}") if mtype is not None else "—"
+        return True, (f"  {role:11s} udp/{a['host_gcs']:<6} OK    MAVLink {ver} "
+                      f"sys={sysid:<3} {who}")
+    return False, (f"  {role:11s} udp/{a['host_gcs']:<6} —     no traffic "
+                   f"(idle, or not in ASSET_N)")
+
+
+def main():
+    args = [x for x in sys.argv[1:] if not x.startswith("-")]
+    watch = any(x in ("-w", "--watch") for x in sys.argv[1:])
+    roles = args or list(SLOTS)
+    bad = [r for r in roles if r not in SLOTS]
+    if bad:
+        print(f"unknown role(s): {', '.join(bad)}", file=sys.stderr)
+        print(f"known: {', '.join(SLOTS)}", file=sys.stderr)
+        return 2
+    while True:
+        print(f"MAVLink endpoints  ({time.strftime('%H:%M:%S')})")
+        live = 0
+        for role in roles:
+            ok, line = check(role)
+            live += ok
+            print(line)
+        print(f"  {live}/{len(roles)} reachable")
+        if not watch:
+            return 0 if live else 1
+        time.sleep(5)
+        print()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

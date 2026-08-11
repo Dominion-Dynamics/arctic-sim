@@ -1,0 +1,26 @@
+<?xml version="1.0" ?>
+<!-- Fishing Vessel VII, decimated from a 1.03M-triangle download to ~42k.
+     Textures were replaced by per-material average colours: at aerial range the
+     hull reads as colour and silhouette, not surface detail, and 48 texture
+     JPEGs would dominate the browser download for nothing.
+
+     The mesh keel sits at z=0, so the model is sunk by its draft to put the
+     waterline on the sea plane. Static: Gazebo Classic has no buoyancy solver,
+     and a fixed target is what a find-and-track task wants. -->
+<sdf version="1.6">
+  <model name="fishing_vessel">
+    <static>true</static>
+    <link name="hull">
+      <visual name="visual">
+        <pose>0 0 -2.6 0 0 0</pose>
+        <geometry>
+          <mesh><uri>model://fishing_vessel/meshes/fishing_vessel.dae</uri></mesh>
+        </geometry>
+      </visual>
+      <collision name="collision">
+        <pose>0 0 -0.6 0 0 0</pose>
+        <geometry><box><size>33.6 8.2 5.0</size></box></geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>

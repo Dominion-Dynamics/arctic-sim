@@ -1,0 +1,80 @@
+<?xml version="1.0" ?>
+<!-- Static vessel. Gazebo Classic has no buoyancy solver, so the hull is pinned
+     at the waterline rather than floated; for a detection target that is the
+     behaviour you want anyway - it stays exactly where you put it. -->
+<sdf version="1.6">
+  <model name="ship">
+    <static>true</static>
+    <link name="hull">
+
+      <visual name="hull_visual">
+        <geometry>
+          <mesh>
+            <uri>model://ship/meshes/hull.dae</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
+      </visual>
+
+      <!-- Collision is a plain box: the lofted hull would be needless work for
+           the physics engine and nothing needs to touch it precisely. -->
+      <collision name="hull_collision">
+        <pose>0 0 -0.10 0 0 0</pose>
+        <geometry><box><size>42.00 9.00 5.00</size></box></geometry>
+      </collision>
+
+      <visual name="deckhouse_visual">
+        <pose>-6.72 0.00 5.00 0 0 0</pose>
+        <geometry><box><size>12.60 7.02 5.20</size></box></geometry>
+        <material>
+          <ambient>0.86 0.87 0.88 1</ambient><diffuse>0.90 0.91 0.92 1</diffuse>
+        </material>
+      </visual>
+      <collision name="deckhouse_collision">
+        <pose>-6.72 0.00 5.00 0 0 0</pose>
+        <geometry><box><size>12.60 7.02 5.20</size></box></geometry>
+      </collision>
+
+      <visual name="bridge_visual">
+        <pose>-4.20 0.00 9.00 0 0 0</pose>
+        <geometry><box><size>5.88 7.74 2.80</size></box></geometry>
+        <material>
+          <ambient>0.86 0.87 0.88 1</ambient><diffuse>0.90 0.91 0.92 1</diffuse>
+        </material>
+      </visual>
+      <collision name="bridge_collision">
+        <pose>-4.20 0.00 9.00 0 0 0</pose>
+        <geometry><box><size>5.88 7.74 2.80</size></box></geometry>
+      </collision>
+
+      <visual name="hatch_visual">
+        <pose>8.40 0.00 2.90 0 0 0</pose>
+        <geometry><box><size>14.28 5.40 1.00</size></box></geometry>
+        <material>
+          <ambient>0.15 0.16 0.18 1</ambient><diffuse>0.20 0.21 0.24 1</diffuse>
+        </material>
+      </visual>
+      <collision name="hatch_collision">
+        <pose>8.40 0.00 2.90 0 0 0</pose>
+        <geometry><box><size>14.28 5.40 1.00</size></box></geometry>
+      </collision>
+
+      <visual name="funnel_visual">
+        <pose>-10.08 0.00 10.80 0 0 0</pose>
+        <geometry><cylinder><radius>1.15</radius><length>4.20</length></cylinder></geometry>
+        <material>
+          <ambient>0.15 0.16 0.18 1</ambient><diffuse>0.20 0.21 0.24 1</diffuse>
+        </material>
+      </visual>
+
+      <visual name="mast_visual">
+        <pose>-4.20 0.00 13.40 0 0 0</pose>
+        <geometry><cylinder><radius>0.18</radius><length>6.00</length></cylinder></geometry>
+        <material>
+          <ambient>0.86 0.87 0.88 1</ambient><diffuse>0.90 0.91 0.92 1</diffuse>
+        </material>
+      </visual>
+
+    </link>
+  </model>
+</sdf>

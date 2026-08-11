@@ -1,0 +1,46 @@
+Maxar archive candidates over arctic-sim sites
+Derived from ArcticDEM stereo strip metadata (PGC STAC).
+pairname contains the Maxar catalog IDs — quote these to a reseller.
+
+=== fort_ross  (6.5 km, 42.2 km²) — 24 summer scenes under 5% cloud
+  2024-07-22  WV02  cloud  2.37%  46cm pan / 1.8m colour
+              WV02_20240722_1030010101712B00_1030010101A0FC00
+  2024-07-16  WV02  cloud  2.56%  46cm pan / 1.8m colour
+              WV02_20240716_10300100FD7E1F00_10300100FE160200
+  2024-06-03  WV02  cloud  1.08%  46cm pan / 1.8m colour
+              WV02_20240603_10300100FC514C00_10300100FD6E6700
+  2022-08-08  WV01  cloud  3.42%  50cm pan only (no colour)
+              WV01_20220808_10200100C9C33C00_10200100CAC20400
+  2022-07-20  WV02  cloud  0.50%  46cm pan / 1.8m colour
+              WV02_20220720_10300100D61FBE00_10300100D74B5A00
+  2022-07-20  WV02  cloud  0.41%  46cm pan / 1.8m colour
+              WV02_20220720_10300100D6461900_10300100D65CD100
+
+=== pond_inlet  (5.0 km, 25.0 km²) — 15 summer scenes under 5% cloud
+  2024-06-20  WV02  cloud  3.61%  46cm pan / 1.8m colour
+              WV02_20240620_10300100FDB8D800_10300100FE73CD00
+  2023-07-14  WV03  cloud  1.51%  31cm pan / 1.2m colour
+              WV03_20230714_104001008765F600_10400100882E3A00
+  2023-06-01  WV02  cloud  0.00%  46cm pan / 1.8m colour
+              WV02_20230601_10300100E78C6A00_10300100E7B63400
+  2022-07-02  WV02  cloud  0.33%  46cm pan / 1.8m colour
+              WV02_20220702_10300100D5BDAD00_10300100D6380900
+  2021-06-28  WV03  cloud  4.82%  31cm pan / 1.2m colour
+              WV03_20210628_1040010069739E00_104001006A331900
+  2019-06-29  WV02  cloud  0.98%  46cm pan / 1.8m colour
+              WV02_20190629_1030010094D65500_10300100945D7600
+
+=== resolute  (2.5 km, 6.2 km²) — 14 summer scenes under 5% cloud
+  2023-07-30  WV02  cloud  0.24%  46cm pan / 1.8m colour
+              WV02_20230730_10300100EA70E900_10300100EA7C9E00
+  2023-07-22  WV03  cloud  2.34%  31cm pan / 1.2m colour
+              WV03_20230722_1040010087D61200_1040010089D0B800
+  2021-07-05  WV02  cloud  0.00%  46cm pan / 1.8m colour
+              WV02_20210705_10300100C1847C00_10300100C18F7800
+  2019-07-03  WV02  cloud  0.00%  46cm pan / 1.8m colour
+              WV02_20190703_103001009565E800_1030010093B2C100
+  2017-07-02  WV02  cloud  0.00%  46cm pan / 1.8m colour
+              WV02_20170702_103001006D049300_103001006D290000
+  2017-07-02  GE01  cloud  0.00%  41cm pan / 1.6m colour
+              GE01_20170702_105001000A8BA100_105001000A8BA300
+
