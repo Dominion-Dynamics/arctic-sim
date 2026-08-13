@@ -69,8 +69,28 @@ done
 
 # ArduPilot runs lockstep with Gazebo. If SCHED_LOOP_RATE exceeds what the host
 # can actually step, every PreArm check fails with "Main loop slow" and the
-# vehicle will not arm. Generated here so it always matches the world.
-RATE="${PHYSICS_RATE:-250}"
+# vehicle will not arm.
+#
+# It must NOT simply match the world, which is what this used to do. The FDM
+# exchange is a synchronous round trip — SITL sends servo output and then blocks
+# until the plugin answers, and the plugin only answers on its next world step.
+# Measured on the wire inside the container, servo out and FDM in are exactly
+# 1:1, so the loop rate IS the round-trip rate. Each iteration therefore pays
+# the fraction of a step it spends waiting for the next step boundary (~half a
+# step on average) plus ~1 ms of bridge networking, and SITL lands strictly
+# below the world rate no matter how idle the host is.
+#
+# Measured on g4dn.2xlarge: a 250 Hz world sustains ~205 Hz of round trips.
+# Setting the two equal is therefore self-defeating — it guarantees
+# "PreArm: Main loop slow (205Hz < 250Hz)" and no amount of CPU or GPU fixes it.
+# Chasing it by changing PHYSICS_RATE moves both numbers and never converges,
+# because the achieved rate is a fraction of whatever you ask for.
+#
+# So run the world FASTER than the loop. LOOP_RATE sets SCHED_LOOP_RATE
+# independently; leave it unset and the old coupled behaviour applies, which is
+# fine only while the loop rate is comfortably under what the world sustains
+# (150 in a 250 Hz world never complained for exactly this reason).
+RATE="${LOOP_RATE:-${PHYSICS_RATE:-250}}"
 echo "SCHED_LOOP_RATE ${RATE}" > /tmp/rate.parm
 
 # Every asset runs as instance 0 in its own container, so they would all take

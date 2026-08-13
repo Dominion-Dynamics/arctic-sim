@@ -31,6 +31,11 @@ x-asset: &asset
     WORLD_NAME: ${SITE_NAME:-fort_ross}
     GAZEBO_HOST: 10.23.0.5
     PHYSICS_RATE: ${PHYSICS_RATE:-250}
+    # SCHED_LOOP_RATE, decoupled from the world step rate. The FDM exchange is a
+    # synchronous round trip, so SITL always lands below the world rate — set
+    # this UNDER PHYSICS_RATE or every PreArm fails on "Main loop slow".
+    # Unset falls back to PHYSICS_RATE; see sitl/entrypoint.sh.
+    LOOP_RATE: ${LOOP_RATE:-}
     SPEEDUP: ${SPEEDUP:-1}
 
 services:
