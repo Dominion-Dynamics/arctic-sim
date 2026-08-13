@@ -60,7 +60,7 @@ services:
       VEHICLE_MODEL: ${VEHICLE_MODEL:-iris_with_ardupilot}
       FORCE_TERRAIN: ${FORCE_TERRAIN:-}
       PHYSICS_RATE: ${PHYSICS_RATE:-250}
-      CAMERAS: ${CAMERAS:-1}
+      CAMERAS: ${CAMERAS:-live}
       SHADOWS: ${SHADOWS:-0}
       IMAGERY_SOURCE: ${IMAGERY_SOURCE:-mapbox}
       MAPTILER_KEY: ${MAPTILER_KEY:-}
@@ -141,7 +141,7 @@ services:
       # it holds the docker socket, so reaching it is equivalent to root on the
       # host. Overridable only because a remote deployment has to put it
       # somewhere the browser can reach — and then it must be an address on a
-      # private network, never 0.0.0.0. See deploy/aws/README.md.
+      # private network (a tailnet or WireGuard address), never 0.0.0.0.
       - "${CONTROL_BIND:-127.0.0.1}:${CONTROL_PORT:-8090}:8090"
     networks:
       arctic:

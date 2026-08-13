@@ -773,16 +773,22 @@ def main() -> None:
             continue          # tower SDF is generated with its port already in
         by_model.setdefault(r["gz_model"], []).append(r)
     # Nested models carry cameras too — the quadcopter's gimbal lives inside
-    # iris_with_ardupilot, so keying only on the roster's gz_model missed it.
+    # iris_with_ardupilot. Follow the asset's OWN model:// includes to find them.
+    # An earlier version globbed every model directory containing "camera_stream"
+    # and attached it to whichever roster entry was in hand; the tower models
+    # match that string too, so both towers were stamped with the quadcopter's
+    # fdm_addr and ports, their plugins collided on 9002 and aborted, and the
+    # trackers sat forever on "Waiting for heartbeat".
     for r in list(roster):
         if r["kind"] == "tower":
+            continue                      # generated with correct ports already
+        top = SIM_ROOT / "models" / r["gz_model"] / "model.sdf"
+        if not top.exists():
             continue
-        for sub in (SIM_ROOT / "models").glob("*/model.sdf"):
-            if "camera_stream" not in sub.read_text():
-                continue
-            if sub.parent.name in by_model:
-                continue
-            by_model.setdefault(sub.parent.name, []).append(r)
+        for uri in re.findall(r"<uri>model://([^/<]+)", top.read_text()):
+            sub = SIM_ROOT / "models" / uri / "model.sdf"
+            if sub.exists() and "camera_stream" in sub.read_text():
+                by_model.setdefault(uri, []).append(r)
 
     for model, users in by_model.items():
         if len(users) > 1:

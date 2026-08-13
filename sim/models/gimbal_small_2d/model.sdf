@@ -152,13 +152,13 @@
           </clip>
         </camera>
         <plugin name="camera_stream" filename="libCameraStreamPlugin.so">
-          <port>0</port>
+          <port>8600</port>
           <label>quadcopter gimbal</label>
           <quality>70</quality>
           <shrink>1</shrink>
           <sleep_when_idle>0</sleep_when_idle>
         </plugin>
-        <always_on>0</always_on>
+        <always_on>1</always_on>
         <update_rate>10</update_rate>
         <visualize>1</visualize>
       </sensor>

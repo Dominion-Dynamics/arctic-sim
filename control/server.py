@@ -247,6 +247,7 @@ def asset_roster():
             "tcp": a["host_tcp"],
             "udp": a["host_gcs"],
             "mavlink": live.get(role, False),
+            "gcs": a["gcs_port"],
             "cam": a["cam_port"],
             "camera": cams.get(role, False),
         })
@@ -386,6 +387,10 @@ PANEL_CSS = """
  padding:1px 4px;color:#8fa6ae;line-height:1;flex:0 0 auto}
 .as-cam:hover{color:#ffd9a0;border-color:#6b5330;background:#2b2113}
 .as-cam:disabled{opacity:.28;cursor:default}
+.as-cli{background:none;border:1px solid transparent;border-radius:3px;cursor:pointer;
+ padding:1px 4px;color:#8fa6ae;line-height:1;flex:0 0 auto}
+.as-cli:hover{color:#c9b6ff;border-color:#4a3d6b;background:#1d1830}
+.as-cli.ok{color:#7fe0a0;border-color:#2f6b46;background:#102d1e}
 .as-note{padding:2px 10px 0;color:#7d949c;font-size:10px;min-height:13px}
 """
 
@@ -656,6 +661,50 @@ PANEL_JS = r"""
     + 'stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/>'
     + '<rect x="1" y="5" width="15" height="14" rx="2"/></svg>';
 
+  var CLI = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" '
+    + 'stroke="currentColor" stroke-width="2"><path d="M4 17l6-5-6-5"/>'
+    + '<path d="M12 19h8"/></svg>';
+
+  // Whatever host served this page, plus the asset's HOST port. Same rule the
+  // camera buttons use, and correct from every vantage point: localhost on the
+  // Docker host, a WireGuard peer on 10.99.0.1, a tailnet node on the MagicDNS
+  // name. If you can load this page, that address reaches the assets too.
+  //
+  // This used to branch on where the page was served from and hand remote
+  // viewers the container IP and the stock in-container port
+  // (10.23.0.100:14550), on the theory that anyone not on localhost was
+  // sitting on the compose network. Nobody is. The `arctic` bridge is internal
+  // to the Docker host and is not routed off it — a remote viewer got an
+  // address unreachable from anywhere they could stand, which is why the
+  // camera buttons worked and these did not. Cameras never had the branch.
+  //
+  // Note a.udp vs a.gcs: a.udp is host_gcs (14550 + 10*slot), unique per
+  // asset, whereas a.gcs is the stock in-container 14550 that EVERY asset
+  // shares — each one runs as ArduPilot instance 0 on its own IP. Publishing
+  // is the only thing that tells them apart, so off-box the host port is the
+  // one that carries any information.
+  function mavCmd(a){
+    return 'mavproxy.py --master=udpout:' + location.hostname + ':' + a.udp;
+  }
+  function copyText(t, btn){
+    var done = function(){
+      if(!btn) return;
+      btn.classList.add('ok');
+      setTimeout(function(){ btn.classList.remove('ok'); }, 1200);
+    };
+    if(navigator.clipboard && window.isSecureContext){
+      navigator.clipboard.writeText(t).then(done, function(){ fallback(t, done); });
+    } else { fallback(t, done); }
+  }
+  function fallback(t, done){
+    // clipboard API needs a secure context; plain http://host:8080 is not one
+    var ta = document.createElement('textarea');
+    ta.value = t; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); done(); } catch(e) {}
+    document.body.removeChild(ta);
+  }
+
   var followName = null, followRAF = null, followOffset = null;
   // Created lazily: panel.js is deferred, so THREE may not exist yet at load.
   function offsetVec(){
@@ -794,7 +843,10 @@ PANEL_JS = r"""
          + (a.camera ? '' : ' disabled')
          + ' title="' + (a.camera ? 'open ' + a.name + ' camera (port ' + a.cam + ')'
                                   : 'no camera stream on port ' + a.cam) + '">'
-         + CAM + '</button></div>';
+         + CAM + '</button>'
+         + '<button class="as-cli" data-n="' + a.name + '"'
+         + (a.rostered ? '' : ' disabled')
+         + ' title="copy MAVProxy command">' + CLI + '</button></div>';
     });
     h += '<div class="as-note" id="as-anote"></div>';
     rows.innerHTML = h;
@@ -808,6 +860,13 @@ PANEL_JS = r"""
     });
     rows.querySelectorAll('.as-fol').forEach(function(b){
       b.onclick = function(){ toggleFollow(b.getAttribute('data-n')); };
+    });
+    rows.querySelectorAll('.as-cli').forEach(function(b){
+      var a = (d.assets || []).filter(function(x){
+        return x.name === b.getAttribute('data-n'); })[0];
+      if(!a) return;
+      b.title = mavCmd(a);
+      b.onclick = function(){ copyText(mavCmd(a), b); anote('copied: ' + mavCmd(a)); };
     });
     rows.querySelectorAll('.as-cam').forEach(function(b){
       b.onclick = function(){
