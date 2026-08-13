@@ -44,7 +44,13 @@ RUN wget -q https://packages.osrfoundation.org/gazebo.gpg \
 
 # --- ArduPilot Gazebo plugin ------------------------------------------------
 WORKDIR /sim
+# Patched before the build: upstream assumes the world is X-North/Y-West, which
+# is wrong for a georeferenced world built on the EPSG:3413 grid. See the patch
+# header — it fails the build loudly if upstream drifts, because the symptom
+# otherwise is a simulator that reports confident, wrong coordinates.
+COPY sim/patches /sim/patches
 RUN git clone --depth 1 https://github.com/nicholasaleks/ardupilot_gazebo.git && \
+    python3 /sim/patches/ardupilot_gazebo_worldframe.py && \
     cd ardupilot_gazebo && mkdir build && cd build && \
     cmake .. && make -j"$(nproc)"
 

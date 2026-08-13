@@ -586,6 +586,13 @@
 
 
     <plugin name="ardupilot_plugin" filename="libArduPilotPlugin.so">
+      <!-- The world is built on ArcticDEM's EPSG:3413 grid, so world +X is grid
+           east and +Y grid north, and the grid is rotated from true north by
+           the convergence at this longitude. Upstream assumes X-North/Y-West,
+           which put every reported lat/lon 90 deg out plus the convergence.
+           This makes the plugin read the world's own <heading_deg>, so each
+           site gets its own convergence with nothing to configure. -->
+      <worldFrame>ENU</worldFrame>
       <!-- Port settings -->
       <listen_addr>10.23.0.5</listen_addr>
         <fdm_addr>10.23.0.101</fdm_addr>
@@ -595,7 +602,13 @@
       <lock_step>1</lock_step>
 
       <modelXYZToAirplaneXForwardZDown>0 0 0 3.141593 0.000000 0.000000</modelXYZToAirplaneXForwardZDown>
-      <gazeboXYZToNED>0 0 0 3.141593 0.000000 1.570796</gazeboXYZToNED>
+      <!-- No <gazeboXYZToNED> here on purpose. <worldFrame>ENU</worldFrame>
+           above derives it from the world's own <heading_deg>, which is the
+           only way it can be right at more than one site. Re-adding an explicit
+           value SILENTLY disables that and restores the rotated-GPS bug: the
+           plugin defers to an explicit value. (The stock line was
+           "0 0 0 3.141593 0 0"; skywalker_x8 carried a hand-applied 90 deg yaw,
+           which was half of this fix -- the axis swap but not the convergence.) -->
 
       <!-- Sensors -->
       <imuName>imu_sensor</imuName>

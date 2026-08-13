@@ -585,7 +585,7 @@ PANEL_JS = r"""
     html += '<div class="btns">'+
             '<button data-c="pose">SDF pose</button>'+
             '<button data-c="xyz">x y z</button>'+
-            (lat!==null?'<button data-c="ll">lat,lon</button>':'')+
+            (lat!==null?'<button data-c="ll">lat lon</button>':'')+
             '</div><div class="hint">right-click terrain to pick · esc to close</div>';
     pick.innerHTML=html;
     pick.style.left=Math.min(ev.clientX+8, innerWidth-280)+'px';
@@ -598,7 +598,10 @@ PANEL_JS = r"""
         ? '<pose>'+last.x.toFixed(2)+' '+last.y.toFixed(2)+' '+last.z.toFixed(2)+' 0 0 0</pose>'
         : b.dataset.c==='xyz'
         ? last.x.toFixed(2)+' '+last.y.toFixed(2)+' '+last.z.toFixed(2)
-        : last.lat.toFixed(6)+','+last.lon.toFixed(6);
+        // Space-separated, matching the x y z button above and, more usefully,
+        // sites.conf's "name lat lon extent_m" — so a picked point pastes
+        // straight into a site line or `./arctic add` without re-editing.
+        : last.lat.toFixed(6)+' '+last.lon.toFixed(6);
     (navigator.clipboard ? navigator.clipboard.writeText(t)
       : Promise.reject()).then(function(){ b.textContent='copied'; },
       function(){
@@ -608,7 +611,7 @@ PANEL_JS = r"""
         document.body.removeChild(ta); b.textContent='copied';
       });
     setTimeout(function(){ b.textContent = b.dataset.c==='pose'?'SDF pose':
-      (b.dataset.c==='xyz'?'x y z':'lat,lon'); }, 1200);
+      (b.dataset.c==="xyz"?"x y z":"lat lon"); }, 1200);
   });
   document.addEventListener('keydown', function(e){
     if(e.key==='Escape') pick.classList.remove('open'); });

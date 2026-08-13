@@ -24,7 +24,19 @@ SERVO3_MIN 1000
 SERVO3_MAX 2000
 SERVO3_TRIM 1000
 
-# No airspeed sensor on the model.
+# No airspeed sensor on the model. Keep it that way.
+#
+# ARSPD_TYPE 100 (the SITL backend) was tried and is WRONG here: it derives
+# airspeed from SITL's own aircraft model, which does not run when Gazebo owns
+# the physics. Measured with it enabled: reported airspeed 1.0 m/s while the
+# aircraft was rolling at 18.4 m/s groundspeed. TECS concluded it was stationary
+# and never rotated -- full throttle down the strip, no takeoff at all. Strictly
+# worse than no sensor.
+#
+# So TECS runs on synthetic airspeed from GPS + attitude, and the AIRSPEED_*
+# values below are targets for that estimate rather than a measured feedback
+# loop. That is a real limitation, not a tuning choice: it is why throttle
+# control on the climb-out is loose.
 ARSPD_TYPE 0
 
 # Ground takeoff on a belly-lander. Do not wait for a hand-launch acceleration
@@ -42,18 +54,45 @@ TKOFF_ROTATE_SPD 12
 # unable to sustain the climb — it reached 45 m, ran out of energy and sank
 # back onto the strip. Full throttle stays available for climbing; the cruise
 # speed is set by the airspeed targets, not by starving the motor.
-TRIM_ARSPD_CM 1500
-ARSPD_FBW_MIN 13
-ARSPD_FBW_MAX 22
-TRIM_THROTTLE 45
+#
+# NAMES MATTER HERE. These were TRIM_ARSPD_CM / ARSPD_FBW_MIN / ARSPD_FBW_MAX
+# until ArduPlane 4.5 renamed them. ArduPilot ignores a parameter it does not
+# recognise WITHOUT ERROR, so the old names loaded cleanly, printed nothing,
+# and left the firmware on its defaults: cruise 12 m/s and min 9 m/s instead of
+# the 15 and 13 tuned here.
+#
+# That is what made TAKEOFF fail. TECS dutifully held the 12 m/s it had been
+# left with, which this wing cannot sustain in a climb; it topped out at 56 m,
+# decayed to 11.8 m/s and sank back onto the strip with the throttle being
+# pulled back the whole way. It reads exactly like an underpowered airframe or
+# a stall, which is why it is worth stating plainly: nothing was wrong with the
+# aircraft, three parameters were simply not being applied.
+#
+# Check with `param show AIRSPEED_*` after a firmware bump rather than trusting
+# the file — a rename is silent, and the symptom appears in flight, not at boot.
+#
+# Note the unit change: TRIM_ARSPD_CM was cm/s (1500), AIRSPEED_CRUISE is m/s.
+AIRSPEED_CRUISE 15
+AIRSPEED_MIN 13
+AIRSPEED_MAX 22
+# Raised from 45. With no airspeed sensor TECS has no speed loop: throttle is
+# height demand plus this as feedforward. At 45 the wing could not hold level
+# flight at cruise, so it climbed to ~55 m, ran the throttle down to 23 and
+# sank. This is the cruise-power assumption, not a limit -- THR_MAX stays 100.
+TRIM_THROTTLE 65
 THR_MAX 100
+
+# Demanding 5 m/s from a wing that only achieves ~2.9 m/s made TECS trade speed
+# it did not have for climb it could not deliver.
+TECS_CLMB_MAX 3
 
 # --- Holding pattern --------------------------------------------------------
 # TAKEOFF climbs to TKOFF_ALT and then holds; LOITER circles wherever it is.
 # A 120 m radius at ~14 m/s is a comfortable ~55 s orbit for this wing.
 TKOFF_ALT 60
 WP_LOITER_RAD 120
-LOITER_RAD 120
+# LOITER_RAD does not exist on ArduPlane -- WP_LOITER_RAD above is the one
+# that applies. Left here as a note so it is not re-added.
 
 # --- Wings level off the strip ----------------------------------------------
 # It was dropping the left wing on the climb-out. Hold wings level until well

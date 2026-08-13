@@ -57,8 +57,49 @@ fi
 IFS=',' read -r name type vehicle frame sim_model slot \
     fdm_in fdm_out ip lat lon alt <<< "${ROW}"
 
+# --- Geodetic reference: the WORLD ORIGIN, not this asset's spawn point ------
+#
+# ArduPilotPlugin reports the model's pose in world coordinates, measured from
+# the world origin. SITL takes that FDM position as an offset from --home. So
+# --home must be the lat/lon OF THE WORLD ORIGIN, or every reported position is
+# out by however far the asset spawned from it.
+#
+# Passing the asset's own lat/lon here — which is the obvious thing to do, and
+# what this did — puts that spawn offset into every coordinate twice. Measured
+# on the quad: it spawned 719 m from the world origin and its reported position
+# was 719 m adrift, while ArduPilot rated its own GPS healthy throughout.
+#
+# The world origin is the site centre, which the terrain build already records.
+# Read it rather than deriving it, so a new site needs nothing added here.
+#
+# Altitude is 0 for the same reason: world z is measured from sea level (see the
+# <elevation> comment in make_world.py) and the plugin sends it straight
+# through, so a non-zero home altitude is added to a height that already
+# includes it. That is what produced "Field Elevation Set: 152m" on terrain
+# 76 m high.
+ORIGIN_JSON="/out/${WORLD_NAME}/terrain.json"
+if [[ -f "${ORIGIN_JSON}" ]]; then
+    read -r home_lat home_lon < <(python3 -c "
+import json
+loc = json.load(open('${ORIGIN_JSON}')).get('location') or {}
+print(loc.get('lat',''), loc.get('lon',''))
+")
+fi
+if [[ -z "${home_lat:-}" || -z "${home_lon:-}" ]]; then
+    # Falling back to the spawn point reintroduces the offset, so say so rather
+    # than letting it look like a GPS or tuning problem later.
+    echo "[${name}] WARNING: no location in ${ORIGIN_JSON}; falling back to this"
+    echo "[${name}]          asset's spawn point as the geodetic reference."
+    echo "[${name}]          Reported positions will be offset by the distance"
+    echo "[${name}]          from the world origin to the spawn point."
+    home_lat="${lat}"; home_lon="${lon}"; home_alt="${alt}"
+else
+    home_alt=0
+fi
+
 echo "[${name}] ${vehicle} (${type}) at ${ip}"
-echo "[${name}] home=${lat},${lon},${alt} world=${WORLD_NAME} gazebo=${GAZEBO_HOST}"
+echo "[${name}] spawn=${lat},${lon},${alt}  home(world origin)=${home_lat},${home_lon},${home_alt}"
+echo "[${name}] world=${WORLD_NAME} gazebo=${GAZEBO_HOST}"
 echo "[${name}] MAVLink tcp:5760  GCS udp:14550  FDM ${fdm_in}/${fdm_out}"
 
 # Wait for this asset's own ArduPilotPlugin to be listening before SITL probes.
@@ -67,9 +108,13 @@ for i in $(seq 1 90); do
     sleep 2
 done
 
-# ArduPilot runs lockstep with Gazebo. If SCHED_LOOP_RATE exceeds what the host
-# can actually step, every PreArm check fails with "Main loop slow" and the
-# vehicle will not arm.
+# If SCHED_LOOP_RATE exceeds what SITL can actually achieve, every PreArm check
+# fails with "Main loop slow" and the vehicle will not arm.
+#
+# Not lockstep, despite what this comment used to claim: this fork of
+# ardupilot_gazebo has no lock_step support at all (grep the plugin source).
+# Gazebo free-runs its own clock and SITL keeps up as best it can, which is why
+# the achieved rate is a fraction of the world rate rather than equal to it.
 #
 # It must NOT simply match the world, which is what this used to do. The FDM
 # exchange is a synchronous round trip — SITL sends servo output and then blocks
@@ -108,7 +153,7 @@ ARGS=(
     -f "${frame}"
     -I 0
     --sim-address="${GAZEBO_HOST}"
-    --custom-location="${lat},${lon},${alt},${HOME_DIR:-0}"
+    --custom-location="${home_lat},${home_lon},${home_alt},${HOME_DIR:-0}"
     --speedup="${SPEEDUP:-1}"
     --no-rebuild
     # Instance 0 would default to FDM 9002/9003. Override so this asset talks to
