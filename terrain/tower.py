@@ -132,10 +132,14 @@ def tower_sdf(name, fdm_addr="127.0.0.1", fdm_port=9012,
       <child>tilt_link</child>
       <axis>
         <xyz>0 1 0</xyz>
-        <!-- Down is +. Stopping at 70 deg keeps the mast and top
-             plate outside the camera's 36 deg vertical FOV; at 90 deg the
-             camera looks straight into its own mount. -->
-        <limit><lower>-0.7854</lower><upper>1.2217</upper>
+        <!-- Down is +. 0.5236 rad = 30 deg down, matching PITCH_MIN -30 in
+             sitl/params/tower.parm; -0.7854 = 45 deg up, matching PITCH_MAX.
+             Both must track those parameters -- see the note there.
+             Was 1.2217 (70 deg): far more travel than the site geometry needs,
+             and SCAN sweeps the whole span, so it spent most of each sweep
+             pointed at the ground. Well clear of the mast and top plate
+             either way; at 90 deg the camera would look into its own mount. -->
+        <limit><lower>-0.7854</lower><upper>0.5236</upper>
           <effort>30</effort><velocity>3.0</velocity></limit>
         <dynamics><damping>0.30</damping><friction>0.05</friction></dynamics>
       </axis>
@@ -220,10 +224,14 @@ def tower_sdf(name, fdm_addr="127.0.0.1", fdm_port=9012,
       </control>
       <control channel="1">
         <type>POSITION</type><jointName>tilt_joint</jointName>
-        <!-- cmd 0..1 -> PITCH_MIN..PITCH_MAX (70 down .. 45 up),
-             so the full servo range lands exactly on the joint range and the
-             loop never winds up against a stop in normal operation. -->
-        <offset>-0.6087</offset><multiplier>-2.0071</multiplier>
+        <!-- cmd 0..1 -> PITCH_MIN..PITCH_MAX (30 down .. 45 up), so the full
+             servo range lands exactly on the joint range and the loop never
+             winds up against a stop in normal operation.
+             Derived, not guessed: multiplier = j(cmd1) - j(cmd0) and
+             offset = j(cmd0) / multiplier, with j(cmd0) = +0.5236 (30 deg
+             down) and j(cmd1) = -0.7854 (45 deg up). Change PITCH_MIN and
+             these two numbers must be recomputed the same way. -->
+        <offset>-0.4000</offset><multiplier>-1.3090</multiplier>
         <p_gain>3.0</p_gain><i_gain>0.0</i_gain><d_gain>0.40</d_gain>
         <cmd_max>3</cmd_max><cmd_min>-3</cmd_min>
       </control>

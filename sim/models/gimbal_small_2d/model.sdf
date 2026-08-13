@@ -165,29 +165,34 @@
 
     </link>
 
-    <joint name='tilt_joint' type='revolute'>
+    <!-- FIXED, not revolute. Nothing actuates this joint: the model carries
+         only CameraStreamPlugin, and the airframe's ArduPilotPlugin has just
+         the four rotor channels. As a free revolute joint with damping and no
+         spring it simply swung with the airframe, so the camera wandered off
+         boresight under acceleration and on takeoff.
+         Fixed holds it at joint zero, which is the design straight-ahead
+         attitude: tilt_link has no pose offset, so the camera's own
+         -1.57 -1.57 0 sensor pose is what points it forward.
+         To make it steerable later, restore the revolute joint below and add a
+         <control> channel to the airframe's ArduPilotPlugin driving
+         'tilt_joint' (the towers in terrain/tower.py are the worked example),
+         plus MNT1_* / SERVO_FUNCTION parameters. Narrow the limits while doing
+         so: -0.1 .. 3.14159 is nearly 180 deg and lets it look into the
+         airframe.
+
+         Original, for restoration:
+           type='revolute'
+           <physics><ode><implicit_spring_damper>1</implicit_spring_damper></ode></physics>
+           <axis><xyz>1 0 0</xyz>
+             <dynamics><damping>0.5</damping></dynamics>
+             <use_parent_model_frame>1</use_parent_model_frame>
+             <limit><lower>-0.1</lower><upper>3.14159265</upper>
+                    <effort>10</effort><velocity>-1</velocity></limit>
+           </axis>
+    -->
+    <joint name='tilt_joint' type='fixed'>
        <parent>base_link</parent>
        <child>tilt_link</child>
-
-      <physics>
-        <ode>
-          <implicit_spring_damper>1</implicit_spring_damper>
-        </ode>
-      </physics>
-
-      <axis>
-        <xyz>1 0 0</xyz>
-        <dynamics>
-          <damping>0.5</damping>
-        </dynamics>
-        <use_parent_model_frame>1</use_parent_model_frame>
-        <limit>
-          <lower>-0.1</lower>
-          <upper>3.14159265</upper>
-          <effort>10</effort>
-          <velocity>-1</velocity>
-        </limit>
-      </axis>
       <pose>0 0 0.02 0 0 0</pose>
     </joint>
   </model>

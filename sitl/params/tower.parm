@@ -6,9 +6,29 @@
 # tracker either cannot reach its limits or grinds against a hard stop.
 #
 # Positive pitch is up in ArduPilot; the joint's positive direction is down.
-# -70 keeps the camera out of its own mast, +45 is enough to follow an aircraft
-# overhead without the head folding back on the fork.
-PITCH_MIN -70
+#
+# -30, not -70. SCAN sweeps the WHOLE PITCH_MIN..PITCH_MAX span, so every
+# degree of downward travel is time spent staring at the ground: at -70 that
+# was 61% of each sweep below the horizon.
+#
+# -30 is chosen from the actual site geometry, not taste. Both towers stand
+# well above what they watch (camera at 118 m and 230 m; the vessel is at sea
+# level and aircraft cruise near 60 m), so some down-look is essential -- this
+# is NOT a case where the horizon is the natural floor:
+#
+#   vessel, from either tower          ~5 deg down
+#   aircraft at 60 m, from tower-2     9.6 deg at 1 km, 19 deg at 500 m,
+#                                      30 deg at 300 m horizontal
+#
+# So -30 still reaches everything down to roughly 300 m horizontal from the
+# higher tower. Below that the target is very close and passing quickly.
+# Clamping harder (-10, say) would look tidy on a scan and lose aircraft
+# tracking altogether.
+#
+# CHANGING THIS MEANS CHANGING THREE THINGS. The joint <limit> and the tilt
+# <control> mapping in terrain/tower.py are derived from these numbers; edit
+# one alone and the servo range stops landing on the joint range.
+PITCH_MIN -30
 PITCH_MAX 45
 YAW_RANGE 360
 
