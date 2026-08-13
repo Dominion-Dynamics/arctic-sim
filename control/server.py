@@ -125,8 +125,32 @@ def write_env(text: str) -> tuple[bool, str]:
         return False, "; ".join(bad[:6])
     path = os.path.join(REPO, ".env")
     tmp = path + ".tmp"
+    # Carry the old file's ownership and mode onto the replacement.
+    #
+    # os.replace swaps in a NEW inode, which belongs to whoever wrote it — root,
+    # since this runs in the control container. Without the chown below, the
+    # first save through the panel silently flips .env to root:root while every
+    # other file in the repo stays with the login user. After that, editing it
+    # over SSH needs sudo, and an rsync that does not exclude it fails outright
+    # with a permission error that says nothing about the panel having been the
+    # cause.
+    #
+    # Best effort on purpose. Docker Desktop's bind mounts synthesise ownership
+    # and chown there is meaningless or fails; a container running as a non-root
+    # user cannot chown at all. Neither is a reason to lose the save, and in
+    # both of those cases the ownership flip does not happen anyway.
+    try:
+        st = os.stat(path)
+    except FileNotFoundError:
+        st = None
     with open(tmp, "w") as fh:
         fh.write("\n".join(out).rstrip() + "\n")
+    if st is not None:
+        try:
+            os.chown(tmp, st.st_uid, st.st_gid)
+            os.chmod(tmp, st.st_mode & 0o7777)
+        except OSError:
+            pass
     os.replace(tmp, path)          # atomic: never leave a half-written .env
     return True, "saved"
 
