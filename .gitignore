@@ -26,3 +26,5 @@ mav*.parm
 
 __pycache__/
 *.pyc
+
+.venv/
