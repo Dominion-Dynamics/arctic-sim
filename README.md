@@ -172,7 +172,10 @@ offers three formats:
 Paste a `lat,lon` into `VEHICLE_START_AT` to move where the vehicle spawns:
 
 ```
-VEHICLE_START_AT=71.996182,-94.862405
+ASSET_1=copter,quadcopter,71.995807,-94.839300
+ASSET_2=tower,tower-1,71.980671,-94.853711
+ASSET_3=plane,fixed-wing,71.998195,-94.841967,>71.997790,-94.846245
+ASSET_5=tower,tower-2,72.011778,-94.804721
 ```
 
 The vehicle is set down on the ground there, and SITL's home — the EKF origin
@@ -251,6 +254,8 @@ FOG=1 FOG_DENSITY=0.0008     # visibility ~3.75 km
 
 Gazebo renders fog into **camera sensors**, so it genuinely degrades what a drone
 sees, not just the human view. Visibility is roughly `3 / density` metres:
+
+Note there is currently a bug with the camera fog sensor rendering. Keep it off for now.
 
 | density | visibility |
 |---|---|
