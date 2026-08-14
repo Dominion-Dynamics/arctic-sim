@@ -18,7 +18,7 @@ stations.
 ```bash
 cp .env.example .env
 # add MAPBOX_TOKEN=pk.… to .env  (free — see below)
-docker compose up
+docker compose up --build
 ```
 
 | | |
