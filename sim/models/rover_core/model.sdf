@@ -1,0 +1,1763 @@
+<?xml version="1.0" ?>
+<!--
+  Tracked skid-steer ground rover, driven by ArduPilot ArduRover.
+
+  PORTED FROM GAZEBO SIM (gz-sim) TO GAZEBO CLASSIC. The upstream model this came
+  from is SDF 1.9 for Harmonic/Garden and will not load here at all. What
+  changed, and why each change is not optional:
+
+    - gz-sim system plugins removed entirely. JointStatePublisher,
+      OdometryPublisher and the four ApplyJointForce systems have no Classic
+      equivalent and no Classic consumer. ApplyJointForce existed only because
+      gz-sim's ArduPilotPlugin drives joints through a component; the Classic
+      plugin calls Joint::SetForce directly, so the joints move with nothing
+      declared.
+    - ArduPilotPlugin -> libArduPilotPlugin.so, with Classic's element names
+      (listen_addr / fdm_port_in / fdm_port_out, worldFrame, lock_step).
+    - <servo_min>/<servo_max> deleted. They are a gz-sim-only feature: the
+      Classic FDM packet carries servo output ALREADY normalised to 0..1, so the
+      plugin computes cmd = multiplier * (raw + offset) straight from that.
+      Leaving them in would be silently ignored, not an error.
+    - navsat sensor -> Classic type="gps".
+    - The IMU's 180 deg sensor roll is KEPT, alongside
+      modelXYZToAirplaneXForwardZDown. An earlier version of this port removed it
+      on the theory that Classic flips the body frame only once. That was wrong,
+      it shipped, and it reported a level rover as inverted — see the long note on
+      the sensor itself for why both rotations are needed.
+    - <pose degrees="true"> is SDF 1.9 only; angles here are radians.
+    - The front camera moved into its own nested model, rover_front_camera.
+      That is not cosmetic — see the note on the include below.
+
+  Geometry, mass and the skid-steer channel mapping are unchanged from upstream:
+  bounding box 0.74 x 0.64 x 0.57 m, 60.8 kg, 0.60 m/s top speed. Those three
+  numbers are load-bearing — the drive gain, the PID torque clamp and
+  rover.parm's speed profile were all sized from them, so changing one means
+  resizing the others.
+
+  TRACKS ARE VISUAL, PHYSICS IS FOUR WHEELS. Each side shows a belt plate and a
+  ring of tread lugs, but every contact with the terrain is still one of the four
+  cylinder collisions — there is not a single collision shape in the track. The
+  lugs around a wheel are parented to that wheel's link, so the wheel joint turns
+  them and the tread visibly rotates with no plugin and no animated texture; the
+  lugs on the straight runs belong to the chassis and therefore do not scroll.
+  Lug pitch (6.6 cm) is computed from the lug ring radius so the runs and the
+  wheels line up; change one lug dimension and they stop matching.
+
+  True track physics would mean Gazebo's TrackedVehicle / TrackController
+  systems, which drive the vehicle themselves and would fight ArduPilotPlugin
+  for the joints. Not worth it: ArduRover's skid steer already maps cleanly onto
+  wheel velocity, and that is what the whole control chain here is built on.
+-->
+<sdf version="1.6">
+  <model name="rover_core">
+
+    <static>0</static>
+
+    <!-- Front camera as a NESTED model, not a sensor on base_link. terrain/
+         make_world.py allocates this asset's MJPEG port by string-matching the
+         streaming plugin's name in a model's SDF and then rewriting that file —
+         and one of those rewrites replaces EVERY <always_on> in it. With the
+         camera in this file, CAMERAS=off would also switch off the IMU below,
+         and the rover would lose its only attitude source with nothing in the
+         log to say so. iris_with_ardupilot keeps its camera in gimbal_small_2d
+         for the same reason.
+
+         The match is on plugin name alone, so do not write that identifier into
+         this file even inside a comment — it is spelled out in
+         rover_front_camera/model.sdf, which is safe to match, and this file must
+         stay unmatched.
+
+         Pose is relative to base_link's frame: level, at the front of the
+         sensor head. -->
+    <include>
+      <uri>model://rover_front_camera</uri>
+      <pose>0.26 0 0.52 0 0 0</pose>
+    </include>
+    <joint name="front_camera_mount" type="fixed">
+      <parent>base_link</parent>
+      <child>rover_front_camera::base_link</child>
+    </joint>
+
+    <!-- ================= CHASSIS ================= -->
+    <link name="base_link">
+      <inertial>
+        <pose>0 0 0.28 0 0 0</pose>
+        <mass>54.0</mass>
+        <inertia>
+          <ixx>2.011</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>2.754</iyy>
+          <iyz>0</iyz>
+          <izz>3.177</izz>
+        </inertia>
+      </inertial>
+
+      <!-- Body collision sits ABOVE the wheels on purpose: the wheels are the
+           only things that should touch the terrain. A body box reaching to the
+           ground would catch on the heightmap and stop the rover dead. -->
+      <collision name="body_collision">
+        <pose>0 0 0.33 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.66 0.58 0.30</size>
+          </box>
+        </geometry>
+      </collision>
+
+      <!-- Every visual below names a material SCRIPT. Inline <ambient>/<diffuse>
+           is not an option, however reasonable it looks: gzweb takes colour only
+           from material.script.name (gz3d/src/gziface.js parseMaterial), so a
+           visual carrying just RGB values resolves to nothing and renders plain
+           white in the browser while still looking correct to the server-side
+           camera sensors. This model shipped that way once and appeared as a
+           white blob. The colours themselves are in
+           materials/scripts/rover.material — repaint there, not here. -->
+      <!-- lower drive housing between the tracks -->
+      <visual name="housing_visual">
+        <pose>0 0 0.14 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.58 0.36 0.12</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Housing</name>
+          </script>
+        </material>
+      </visual>
+
+      <!-- main upper body -->
+      <visual name="body_visual">
+        <pose>0 0 0.34 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.64 0.46 0.28</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Body</name>
+          </script>
+        </material>
+      </visual>
+
+      <!-- sensor head (cameras + RTK), at the front top -->
+      <visual name="head_visual">
+        <pose>0.16 0 0.52 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.20 0.30 0.10</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Head</name>
+          </script>
+        </material>
+      </visual>
+
+      <!-- left track. The belt plate spans the two road wheels; the
+           straight runs carry the same lug boxes at the same 6.6 cm pitch as
+           the wheels, so tread is continuous all the way round. These run
+           lugs are on the chassis, so they do NOT scroll — only the wheel
+           lugs turn. At the ranges this sim is flown from that reads as a
+           moving track; making the runs scroll too needs a plugin stepping
+           lug poses, or an Ogre scroll_anim texture that gzweb would not
+           animate. Visual only: physics is still the four wheel cylinders. -->
+      <visual name="left_belt">
+        <pose>0 0.2500 0.1200 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.4400 0.1120 0.2100</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Track</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_bot_00">
+        <pose>-0.1979 0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_top_00">
+        <pose>-0.1979 0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_bot_01">
+        <pose>-0.1319 0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_top_01">
+        <pose>-0.1319 0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_bot_02">
+        <pose>-0.0660 0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_top_02">
+        <pose>-0.0660 0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_bot_03">
+        <pose>0.0000 0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_top_03">
+        <pose>0.0000 0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_bot_04">
+        <pose>0.0660 0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_top_04">
+        <pose>0.0660 0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_bot_05">
+        <pose>0.1319 0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_top_05">
+        <pose>0.1319 0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_bot_06">
+        <pose>0.1979 0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="left_lug_top_06">
+        <pose>0.1979 0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+
+      <!-- right track. The belt plate spans the two road wheels; the
+           straight runs carry the same lug boxes at the same 6.6 cm pitch as
+           the wheels, so tread is continuous all the way round. These run
+           lugs are on the chassis, so they do NOT scroll — only the wheel
+           lugs turn. At the ranges this sim is flown from that reads as a
+           moving track; making the runs scroll too needs a plugin stepping
+           lug poses, or an Ogre scroll_anim texture that gzweb would not
+           animate. Visual only: physics is still the four wheel cylinders. -->
+      <visual name="right_belt">
+        <pose>0 -0.2500 0.1200 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.4400 0.1120 0.2100</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Track</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_bot_00">
+        <pose>-0.1979 -0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_top_00">
+        <pose>-0.1979 -0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_bot_01">
+        <pose>-0.1319 -0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_top_01">
+        <pose>-0.1319 -0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_bot_02">
+        <pose>-0.0660 -0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_top_02">
+        <pose>-0.0660 -0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_bot_03">
+        <pose>0.0000 -0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_top_03">
+        <pose>0.0000 -0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_bot_04">
+        <pose>0.0660 -0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_top_04">
+        <pose>0.0660 -0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_bot_05">
+        <pose>0.1319 -0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_top_05">
+        <pose>0.1319 -0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_bot_06">
+        <pose>0.1979 -0.2500 -0.0060 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="right_lug_top_06">
+        <pose>0.1979 -0.2500 0.2460 0 0 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+
+      <!-- Attitude source for ArduPilotPlugin, and the only sensor it actually
+           reads. <imuName> below is matched by Model::SensorScopedName, which
+           searches within THIS model, so a bare sensor name is enough and the
+           world-side model name — which comes from the roster and is not known
+           when this file is written — never enters into it. Only if that
+           model-scoped lookup finds nothing does the plugin fall back to a
+           world-global name match, which is the path that could pick another
+           model's sensor. Naming it distinctly keeps it off that path.
+
+           THE 180 DEG ROLL BELOW IS LOAD-BEARING. Do not "simplify" it away by
+           reasoning that modelXYZToAirplaneXForwardZDown already flips the body
+           frame — that is exactly the mistake that shipped here once. The two
+           rotations are not redundant: the patched plugin's gazeboXYZToNED keeps
+           its own 180 deg roll (it only rewrites the YAW from the world heading),
+           so attitude = modelPose - gazeboXYZToNED leaves a level vehicle rolled
+           180, and the sensor roll plus modelXYZToAirplaneXForwardZDown are what
+           cancel it back out. Drop one and ArduPilot reports a level rover at
+           roll 179.75 deg, its yaw never aligns, and NavEKF3 eventually takes
+           EKFGSF_yaw into a SIGFPE that kills SITL outright.
+
+           Every navigating vehicle here carries it: iris_with_standoffs and
+           skywalker_x8 both use this exact pose on their IMU sensor. (The towers
+           do not, but they are AntennaTrackers that only pan and tilt and set an
+           explicit gazeboXYZToNED, so they are not a counter-example.)
+
+           1000 Hz to match iris_with_standoffs and skywalker_x8; the world steps
+           at PHYSICS_RATE and clamps the sensor to it anyway. -->
+      <sensor name="rover_imu_sensor" type="imu">
+        <pose>0 0 0 3.141593 0 0</pose>
+        <always_on>1</always_on>
+        <update_rate>1000</update_rate>
+        <imu/>
+      </sensor>
+
+      <!-- RTK GPS. ArduPilot synthesises its own GPS from the FDM, so nothing in
+           the control loop reads this; it is here so the Gazebo side can be
+           checked against geodetic truth the way the georeferencing section of
+           the README does. stddev is RTK-grade because the real Core is. -->
+      <sensor name="rover_gps_sensor" type="gps">
+        <always_on>1</always_on>
+        <update_rate>5</update_rate>
+        <gps>
+          <position_sensing>
+            <horizontal>
+              <noise type="gaussian">
+                <mean>0</mean>
+                <stddev>0.02</stddev>
+              </noise>
+            </horizontal>
+            <vertical>
+              <noise type="gaussian">
+                <mean>0</mean>
+                <stddev>0.05</stddev>
+              </noise>
+            </vertical>
+          </position_sensing>
+        </gps>
+      </sensor>
+    </link>
+
+    <!-- ================= WHEELS (skid drive) =================
+         Four driven cylinders, two per side, commanded as a left group and a
+         right group. Right-side joint axes are mirrored (0 -1 0), so their
+         multiplier is negated below. -->
+
+    <!-- LEFT FRONT -->
+    <link name="lf_wheel_link">
+      <pose>0.25 0.25 0.12 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <mass>1.7</mass>
+        <inertia>
+          <ixx>0.0078342</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0078342</iyy>
+          <iyz>0</iyz>
+          <izz>0.012240</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.12</radius>
+            <length>0.11</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.1</mu>
+              <mu2>1.1</mu2>
+              <fdir1>1 0 0</fdir1>
+            </ode>
+          </friction>
+          <contact>
+            <ode>
+              <min_depth>0.001</min_depth>
+              <kp>1.0e6</kp>
+              <kd>100.0</kd>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+      <visual name="visual">
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.12</radius>
+            <length>0.11</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Wheel</name>
+          </script>
+        </material>
+      </visual>
+      <!-- Tread lugs. Visual only, and parented to THIS link on purpose:
+           the wheel joint turns them, so the tread visibly rotates in gzweb
+           and in the camera sensors without a plugin or an animated texture.
+           A lug at rim angle t sits at (r cos t, 0, r sin t) and is pitched
+           by (pi/2 - t) so its thin axis points radially outward. Lugs that
+           come round inside the belt plate are simply occluded by it. -->
+      <visual name="lug_00">
+        <pose>0.1260 0 0.0000 0 1.57080 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_01">
+        <pose>0.1091 0 0.0630 0 1.04720 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_02">
+        <pose>0.0630 0 0.1091 0 0.52360 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_03">
+        <pose>0.0000 0 0.1260 0 0.00000 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_04">
+        <pose>-0.0630 0 0.1091 0 -0.52360 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_05">
+        <pose>-0.1091 0 0.0630 0 -1.04720 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_06">
+        <pose>-0.1260 0 0.0000 0 -1.57080 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_07">
+        <pose>-0.1091 0 -0.0630 0 -2.09440 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_08">
+        <pose>-0.0630 0 -0.1091 0 -2.61799 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_09">
+        <pose>-0.0000 0 -0.1260 0 -3.14159 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_10">
+        <pose>0.0630 0 -0.1091 0 -3.66519 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_11">
+        <pose>0.1091 0 -0.0630 0 -4.18879 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+    </link>
+    <joint name="motor_0" type="revolute">
+      <parent>base_link</parent>
+      <child>lf_wheel_link</child>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1e16</lower>
+          <upper>1e16</upper>
+        </limit>
+        <dynamics>
+          <damping>0.0005</damping>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <!-- LEFT BACK -->
+    <link name="lb_wheel_link">
+      <pose>-0.25 0.25 0.12 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <mass>1.7</mass>
+        <inertia>
+          <ixx>0.0078342</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0078342</iyy>
+          <iyz>0</iyz>
+          <izz>0.012240</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.12</radius>
+            <length>0.11</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.1</mu>
+              <mu2>1.1</mu2>
+              <fdir1>1 0 0</fdir1>
+            </ode>
+          </friction>
+          <contact>
+            <ode>
+              <min_depth>0.001</min_depth>
+              <kp>1.0e6</kp>
+              <kd>100.0</kd>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+      <visual name="visual">
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.12</radius>
+            <length>0.11</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Wheel</name>
+          </script>
+        </material>
+      </visual>
+      <!-- Tread lugs. Visual only, and parented to THIS link on purpose:
+           the wheel joint turns them, so the tread visibly rotates in gzweb
+           and in the camera sensors without a plugin or an animated texture.
+           A lug at rim angle t sits at (r cos t, 0, r sin t) and is pitched
+           by (pi/2 - t) so its thin axis points radially outward. Lugs that
+           come round inside the belt plate are simply occluded by it. -->
+      <visual name="lug_00">
+        <pose>0.1260 0 0.0000 0 1.57080 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_01">
+        <pose>0.1091 0 0.0630 0 1.04720 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_02">
+        <pose>0.0630 0 0.1091 0 0.52360 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_03">
+        <pose>0.0000 0 0.1260 0 0.00000 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_04">
+        <pose>-0.0630 0 0.1091 0 -0.52360 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_05">
+        <pose>-0.1091 0 0.0630 0 -1.04720 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_06">
+        <pose>-0.1260 0 0.0000 0 -1.57080 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_07">
+        <pose>-0.1091 0 -0.0630 0 -2.09440 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_08">
+        <pose>-0.0630 0 -0.1091 0 -2.61799 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_09">
+        <pose>-0.0000 0 -0.1260 0 -3.14159 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_10">
+        <pose>0.0630 0 -0.1091 0 -3.66519 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_11">
+        <pose>0.1091 0 -0.0630 0 -4.18879 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+    </link>
+    <joint name="motor_1" type="revolute">
+      <parent>base_link</parent>
+      <child>lb_wheel_link</child>
+      <axis>
+        <xyz>0 1 0</xyz>
+        <limit>
+          <lower>-1e16</lower>
+          <upper>1e16</upper>
+        </limit>
+        <dynamics>
+          <damping>0.0005</damping>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <!-- RIGHT FRONT (axis mirrored) -->
+    <link name="rf_wheel_link">
+      <pose>0.25 -0.25 0.12 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <mass>1.7</mass>
+        <inertia>
+          <ixx>0.0078342</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0078342</iyy>
+          <iyz>0</iyz>
+          <izz>0.012240</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.12</radius>
+            <length>0.11</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.1</mu>
+              <mu2>1.1</mu2>
+              <fdir1>1 0 0</fdir1>
+            </ode>
+          </friction>
+          <contact>
+            <ode>
+              <min_depth>0.001</min_depth>
+              <kp>1.0e6</kp>
+              <kd>100.0</kd>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+      <visual name="visual">
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.12</radius>
+            <length>0.11</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Wheel</name>
+          </script>
+        </material>
+      </visual>
+      <!-- Tread lugs. Visual only, and parented to THIS link on purpose:
+           the wheel joint turns them, so the tread visibly rotates in gzweb
+           and in the camera sensors without a plugin or an animated texture.
+           A lug at rim angle t sits at (r cos t, 0, r sin t) and is pitched
+           by (pi/2 - t) so its thin axis points radially outward. Lugs that
+           come round inside the belt plate are simply occluded by it. -->
+      <visual name="lug_00">
+        <pose>0.1260 0 0.0000 0 1.57080 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_01">
+        <pose>0.1091 0 0.0630 0 1.04720 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_02">
+        <pose>0.0630 0 0.1091 0 0.52360 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_03">
+        <pose>0.0000 0 0.1260 0 0.00000 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_04">
+        <pose>-0.0630 0 0.1091 0 -0.52360 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_05">
+        <pose>-0.1091 0 0.0630 0 -1.04720 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_06">
+        <pose>-0.1260 0 0.0000 0 -1.57080 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_07">
+        <pose>-0.1091 0 -0.0630 0 -2.09440 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_08">
+        <pose>-0.0630 0 -0.1091 0 -2.61799 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_09">
+        <pose>-0.0000 0 -0.1260 0 -3.14159 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_10">
+        <pose>0.0630 0 -0.1091 0 -3.66519 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_11">
+        <pose>0.1091 0 -0.0630 0 -4.18879 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+    </link>
+    <joint name="motor_2" type="revolute">
+      <parent>base_link</parent>
+      <child>rf_wheel_link</child>
+      <axis>
+        <xyz>0 -1 0</xyz>
+        <limit>
+          <lower>-1e16</lower>
+          <upper>1e16</upper>
+        </limit>
+        <dynamics>
+          <damping>0.0005</damping>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <!-- RIGHT BACK (axis mirrored) -->
+    <link name="rb_wheel_link">
+      <pose>-0.25 -0.25 0.12 0 0 0</pose>
+      <inertial>
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <mass>1.7</mass>
+        <inertia>
+          <ixx>0.0078342</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0078342</iyy>
+          <iyz>0</iyz>
+          <izz>0.012240</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.12</radius>
+            <length>0.11</length>
+          </cylinder>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>1.1</mu>
+              <mu2>1.1</mu2>
+              <fdir1>1 0 0</fdir1>
+            </ode>
+          </friction>
+          <contact>
+            <ode>
+              <min_depth>0.001</min_depth>
+              <kp>1.0e6</kp>
+              <kd>100.0</kd>
+            </ode>
+          </contact>
+        </surface>
+      </collision>
+      <visual name="visual">
+        <pose>0 0 0 1.5707963 0 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.12</radius>
+            <length>0.11</length>
+          </cylinder>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Wheel</name>
+          </script>
+        </material>
+      </visual>
+      <!-- Tread lugs. Visual only, and parented to THIS link on purpose:
+           the wheel joint turns them, so the tread visibly rotates in gzweb
+           and in the camera sensors without a plugin or an animated texture.
+           A lug at rim angle t sits at (r cos t, 0, r sin t) and is pitched
+           by (pi/2 - t) so its thin axis points radially outward. Lugs that
+           come round inside the belt plate are simply occluded by it. -->
+      <visual name="lug_00">
+        <pose>0.1260 0 0.0000 0 1.57080 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_01">
+        <pose>0.1091 0 0.0630 0 1.04720 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_02">
+        <pose>0.0630 0 0.1091 0 0.52360 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_03">
+        <pose>0.0000 0 0.1260 0 0.00000 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_04">
+        <pose>-0.0630 0 0.1091 0 -0.52360 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_05">
+        <pose>-0.1091 0 0.0630 0 -1.04720 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_06">
+        <pose>-0.1260 0 0.0000 0 -1.57080 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_07">
+        <pose>-0.1091 0 -0.0630 0 -2.09440 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_08">
+        <pose>-0.0630 0 -0.1091 0 -2.61799 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_09">
+        <pose>-0.0000 0 -0.1260 0 -3.14159 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_10">
+        <pose>0.0630 0 -0.1091 0 -3.66519 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+      <visual name="lug_11">
+        <pose>0.1091 0 -0.0630 0 -4.18879 0</pose>
+        <geometry>
+          <box>
+            <size>0.0420 0.1250 0.0180</size>
+          </box>
+        </geometry>
+        <material>
+          <script>
+            <uri>model://rover_core/materials/scripts/rover.material</uri>
+            <name>Rover/Lug</name>
+          </script>
+        </material>
+      </visual>
+    </link>
+    <joint name="motor_3" type="revolute">
+      <parent>base_link</parent>
+      <child>rb_wheel_link</child>
+      <axis>
+        <xyz>0 -1 0</xyz>
+        <limit>
+          <lower>-1e16</lower>
+          <upper>1e16</upper>
+        </limit>
+        <dynamics>
+          <damping>0.0005</damping>
+        </dynamics>
+      </axis>
+    </joint>
+
+    <!-- ================= ArduPilot SITL interface =================
+         Endpoints are placeholders. make_world.py rewrites listen_addr,
+         fdm_addr, fdm_port_in and fdm_port_out from the roster every build, so
+         editing them here has no lasting effect. -->
+    <plugin name="ardupilot_plugin" filename="libArduPilotPlugin.so">
+      <!-- REQUIRED at this latitude, and the reason is not obvious. The world is
+           built on ArcticDEM's EPSG:3413 grid, so +X is grid east and +Y grid
+           north, rotated from true north by the grid convergence. worldFrame ENU
+           makes the patched plugin (sim/patches/ardupilot_gazebo_worldframe.py)
+           derive its NED transform from the world's own <heading_deg>. Without
+           it every lat/lon the rover reports is rotated 90 deg plus the
+           convergence — and ArduPilot reports arriving at waypoints it is
+           hundreds of metres from, so the failure looks like tuning.
+
+           Do NOT add <gazeboXYZToNED> here. The plugin defers to an explicit
+           value, which silently switches the above back off. -->
+      <worldFrame>ENU</worldFrame>
+
+      <!-- Machine running Gazebo -->
+      <listen_addr>10.23.0.5</listen_addr>
+      <fdm_port_in>9052</fdm_port_in>
+
+      <!-- Machine running SITL -->
+      <fdm_addr>10.23.0.105</fdm_addr>
+      <fdm_port_out>9053</fdm_port_out>
+
+      <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
+      <lock_step>1</lock_step>
+      <modelXYZToAirplaneXForwardZDown>0 0 0 3.141593 0 0</modelXYZToAirplaneXForwardZDown>
+      <imuName>rover_imu_sensor</imuName>
+
+      <!-- Skid steer. LEFT group on channel 0 (ArduPilot SERVO1, function 73
+           ThrottleLeft), RIGHT group on channel 2 (SERVO3, function 74
+           ThrottleRight) — matched by sitl/params/rover.parm.
+
+           Drive gain, sized from the real top speed. The Classic plugin gets
+           servo output already normalised to 0..1, so 1500 us arrives as 0.5:
+
+             cmd = multiplier * (raw + offset)      [rad/s]
+
+           offset -0.5 puts stop at 0.5 (1500 us) and gives +/-0.5 at the stops.
+           Wheel radius 0.12 m for a 0.60 m/s vehicle needs 0.60/0.12 = 5.0
+           rad/s, so multiplier = 5.0/0.5 = 10.0.
+
+           cmd_max/cmd_min clamp the PID's OUTPUT, which for VELOCITY control is
+           joint torque in N*m — not a velocity. A pivot turn is what sets the
+           floor: it drags the wheels sideways against mu 1.1 under 149 N per
+           wheel, needing about 1.1 * 149 * 0.12 = 20 N*m each. 50 leaves
+           headroom for climbing. iris's +/-2.5 is right for a propeller and
+           would leave this rover unable to turn on the spot.
+
+           These gains are derived, not measured — see the tuning note in
+           sitl/params/rover.parm. -->
+      <control channel="0">
+        <type>VELOCITY</type>
+        <jointName>motor_0</jointName>
+        <useForce>1</useForce>
+        <multiplier>10.0</multiplier>
+        <offset>-0.5</offset>
+        <p_gain>2.5</p_gain>
+        <i_gain>1.5</i_gain>
+        <d_gain>0.0</d_gain>
+        <i_max>25</i_max>
+        <i_min>-25</i_min>
+        <cmd_max>50</cmd_max>
+        <cmd_min>-50</cmd_min>
+      </control>
+      <control channel="0">
+        <type>VELOCITY</type>
+        <jointName>motor_1</jointName>
+        <useForce>1</useForce>
+        <multiplier>10.0</multiplier>
+        <offset>-0.5</offset>
+        <p_gain>2.5</p_gain>
+        <i_gain>1.5</i_gain>
+        <d_gain>0.0</d_gain>
+        <i_max>25</i_max>
+        <i_min>-25</i_min>
+        <cmd_max>50</cmd_max>
+        <cmd_min>-50</cmd_min>
+      </control>
+
+      <!-- multiplier negated: these joints' axes are mirrored (0 -1 0). If a
+           forward command pivots the rover instead of driving it, flip the sign
+           on one side. -->
+      <control channel="2">
+        <type>VELOCITY</type>
+        <jointName>motor_2</jointName>
+        <useForce>1</useForce>
+        <multiplier>-10.0</multiplier>
+        <offset>-0.5</offset>
+        <p_gain>2.5</p_gain>
+        <i_gain>1.5</i_gain>
+        <d_gain>0.0</d_gain>
+        <i_max>25</i_max>
+        <i_min>-25</i_min>
+        <cmd_max>50</cmd_max>
+        <cmd_min>-50</cmd_min>
+      </control>
+      <control channel="2">
+        <type>VELOCITY</type>
+        <jointName>motor_3</jointName>
+        <useForce>1</useForce>
+        <multiplier>-10.0</multiplier>
+        <offset>-0.5</offset>
+        <p_gain>2.5</p_gain>
+        <i_gain>1.5</i_gain>
+        <d_gain>0.0</d_gain>
+        <i_max>25</i_max>
+        <i_min>-25</i_min>
+        <cmd_max>50</cmd_max>
+        <cmd_min>-50</cmd_min>
+      </control>
+    </plugin>
+
+  </model>
+</sdf>

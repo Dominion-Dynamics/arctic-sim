@@ -218,6 +218,25 @@ services:
       arctic:
         ipv4_address: 10.23.0.103
 
+  # rover: ArduRover on the tracked skid-steer ground rover
+  # (sim/models/rover_core). Slot 5, not 2 — 10.23.0.102 stays reserved for the
+  # `boat` role that .env.example already documents.
+  rover:
+    <<: *asset
+    container_name: arctic-sim-rover
+    environment:
+      <<: *asset-env
+      ASSET_NAME: rover
+    ports:
+      # host -> container. In-container ports are always the stock ones,
+      # because the asset runs as ArduPilot instance 0 on its own IP.
+      - "5810:5760"           # MAVLink TCP
+      - "14600:14550/udp"       # GCS
+      - "14601:14551/udp"     # second GCS / logging
+    networks:
+      arctic:
+        ipv4_address: 10.23.0.105
+
   # tower-2: AntennaTracker, EO/IR camera mast
   tower-2:
     <<: *asset
