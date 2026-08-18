@@ -1,0 +1,102 @@
+// Ground rover livery.
+//
+// These colours have to live in an Ogre material script rather than as
+// <ambient>/<diffuse> inside the <visual>, because gzweb ignores the latter
+// entirely. GZ3D.GZIface.prototype.parseMaterial (gz3d/src/gziface.js) reads
+// colour ONLY from material.script.name, looked up in the dictionary gzbridge
+// builds by scanning every .material file under the deployed assets tree
+// (gzbridge/server.js: gzNode.loadMaterialScripts). A visual with no <script>
+// resolves to nothing and THREE.js falls back to plain white — which is exactly
+// how this model first shipped, and it rendered as a white blob in the browser
+// while looking correct to the server-side camera sensors.
+//
+// deploy.sh stages model subdirectories into http/client/assets/, so this file
+// arrives at assets/rover_core/materials/scripts/rover.material and the
+// recursive scan finds it there. That staging only happens on a gzweb deploy:
+// after editing this file, bring the sim up with GZWEB_REDEPLOY=1 or the browser
+// keeps serving the previous livery.
+//
+// Repainting the rover means editing this file and nothing else. Keep the
+// material NAMES stable — model.sdf refers to them by name.
+
+material Rover/Body
+{
+  technique
+  {
+    pass main
+    {
+      ambient 0.18 0.34 0.20  1.0
+      diffuse 0.20 0.42 0.24  1.0
+      specular 0.2 0.2 0.2 1.000000 12.500000
+    }
+  }
+}
+
+material Rover/Housing
+{
+  technique
+  {
+    pass main
+    {
+      ambient 0.10 0.10 0.10  1.0
+      diffuse 0.15 0.15 0.15  1.0
+      specular 0.2 0.2 0.2 1.000000 12.500000
+    }
+  }
+}
+
+material Rover/Head
+{
+  technique
+  {
+    pass main
+    {
+      ambient 0.05 0.05 0.05  1.0
+      diffuse 0.08 0.08 0.08  1.0
+      specular 0.4 0.4 0.4 1.000000 25.000000
+    }
+  }
+}
+
+material Rover/Track
+{
+  technique
+  {
+    pass main
+    {
+      ambient 0.03 0.03 0.03  1.0
+      diffuse 0.06 0.06 0.06  1.0
+      specular 0.1 0.1 0.1 1.000000 1.500000
+    }
+  }
+}
+
+// Tread lugs. Deliberately a shade lighter than Rover/Track so the individual
+// blocks stay readable against the belt plate they sit on — at altitude the whole
+// track otherwise collapses into one black smear and the rover stops looking
+// tracked at all.
+material Rover/Lug
+{
+  technique
+  {
+    pass main
+    {
+      ambient 0.06 0.06 0.07  1.0
+      diffuse 0.11 0.11 0.12  1.0
+      specular 0.15 0.15 0.15 1.000000 6.000000
+    }
+  }
+}
+
+material Rover/Wheel
+{
+  technique
+  {
+    pass main
+    {
+      ambient 0.02 0.02 0.02  1.0
+      diffuse 0.05 0.05 0.05  1.0
+      specular 0.1 0.1 0.1 1.000000 1.500000
+    }
+  }
+}

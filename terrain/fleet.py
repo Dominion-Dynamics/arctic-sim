@@ -42,8 +42,20 @@ TYPES = {
     "plane":  {"vehicle": "ArduPlane", "frame": "gazebo-zephyr",
                "sim_model": None, "gz_model": "skywalker_x8",
                "kind": "vehicle"},
-    # A boat is a Rover with FRAME_CLASS=2; ArduPilot has no boat vehicle.
-    "rover":  {"vehicle": "Rover", "frame": "gazebo-rover",
+    # Tracked skid-steer ground rover. `rover-skid` rather than
+    # `gazebo-rover` because the skid frame is what carries
+    # ArduPilot's skid-steer defaults, and --model gazebo (below) is what
+    # actually selects the FDM backend -- the frame's own model hint is
+    # overridden either way.
+    "rover":  {"vehicle": "Rover", "frame": "rover-skid",
+               "sim_model": "gazebo", "gz_model": "rover_core",
+               "kind": "vehicle"},
+    # A boat is a Rover with FRAME_CLASS=2 (sitl/params/boat.parm); ArduPilot has
+    # no boat vehicle. Declared so that param file is reachable at all -- the
+    # entrypoint loads /params/<type>.parm, so with `boat` missing from this
+    # table boat.parm could never load. The model is still not bundled: an asset
+    # of this type gets the "model not bundled" warning from place_assets.
+    "boat":   {"vehicle": "Rover", "frame": "rover-skid",
                "sim_model": "gazebo", "gz_model": "usv_camera_boat",
                "kind": "vehicle"},
     "tower":  {"vehicle": "AntennaTracker", "frame": "tracker",
@@ -60,11 +72,15 @@ TYPES = {
 # move an asset onto a different IP than the one its container was given.
 #
 # Adding a role means adding it here AND adding the matching service block.
+# Slot 2 stays reserved for the `boat` role that .env.example and the README
+# already publish at 10.23.0.102 — the ground rover took 5 rather than quietly
+# moving an address someone may already have pointed a GCS at.
 SLOTS = {
     "quadcopter": 0,
     "fixed-wing": 1,
     "tower-1":    3,
     "tower-2":    4,
+    "rover":      5,
 }
 
 FDM_BASE = 9002       # port on the SIM container; must be unique per asset

@@ -38,6 +38,10 @@ because host ports cannot collide:
 | boat | 10.23.0.102 | 5780 | 14570 / 14571 |
 | tower-1 | 10.23.0.103 | 5790 | 14580 / 14581 |
 | tower-2 | 10.23.0.104 | 5800 | 14590 / 14591 |
+| rover | 10.23.0.105 | 5810 | 14600 / 14601 |
+
+The `boat` row is a reservation: `sitl/params/boat.parm` and the slot exist, but
+no boat model is bundled, so an `ASSET_N=boat,…` line warns and loads nothing.
 
 The endpoints are MAVProxy `udpin` sockets — listeners — so a client has to
 transmit first. Use `udpout`, or set an explicit target host in a GCS:
@@ -302,8 +306,81 @@ and the terrain agree.
 | VEHICLE | FRAME | VEHICLE_MODEL | status |
 |---|---|---|---|
 | ArduCopter | `gazebo-iris` | `iris_with_ardupilot` | bundled |
-| ArduRover | `gazebo-rover` | — | needs a model |
-| ArduPlane | `gazebo-zephyr` | — | needs a model |
+| ArduRover | `rover-skid` | `rover_core` | bundled, drives; steering tune unverified |
+| ArduPlane | `gazebo-zephyr` | `skywalker_x8` | bundled |
+
+### The ground rover
+
+`rover_core` is a 60.8 kg tracked skid-steer rover, 0.75 m long, **top
+speed 0.60 m/s**. That last number is the one to plan around — it crosses a
+6.5 km site in three hours, so it is a close-range asset, not a way to get
+anywhere. It carries a forward EO camera on the same MJPEG machinery as the
+towers, so `CAMERAS` and the GPU notes above apply to it too.
+
+Both fields of the roster line read `rover` because the asset **type** and the
+**role** share the name — the repeat is not a typo. Type picks the ArduPilot
+vehicle and the Gazebo model; role picks the container and the address:
+
+```
+ASSET_6=rover,rover,71.99,-94.83
+```
+
+Skid steer means the two throttle channels *are* the steering: ArduPilot's
+SERVO1 (function 73, ThrottleLeft) drives the left pair of wheels through plugin
+channel 0, SERVO3 (function 74, ThrottleRight) the right pair through channel 2.
+`sitl/params/rover.parm` sets both ends of that mapping.
+
+Drive it from MAVProxy on its own endpoint:
+
+```bash
+mavproxy.py --master=udpout:localhost:14600
+mode MANUAL
+arm throttle
+rc 3 1650      # forward   (1500 = stop, 1350 = reverse)
+rc 1 1600      # right     (1500 = straight)
+rc 3 1500      # stop
+```
+
+**The drive gain is measured. The steering tune is not.** Driven straight in
+MANUAL on Fort Ross terrain, both throttle channels held 1729 µs and the rover
+covered 2.89 m in 10 s — 0.29 m/s against 0.275 m/s predicted by the plugin's
+own arithmetic (`10.0 × (0.729 − 0.5) × 0.12 m`). It tracked straight, which also
+rules out the mirrored-axis sign error described in `model.sdf`.
+
+What that run did *not* exercise is `ATC_*`: MANUAL passes throttle straight
+through, so the speed and heading controllers in `sitl/params/rover.parm` have
+never been asked to hold anything. Expect to retune those for AUTO/GUIDED.
+Which end to reach for: speed tracking lives in the plugin PID (`model.sdf`),
+heading lives in `ATC_STR_*` (`rover.parm`).
+
+### Tracks
+
+Each side shows a belt plate and a ring of tread lugs, and **every one of them is
+visual only** — all terrain contact is still the four wheel cylinders, so the
+drive tune above is unaffected by any of it. The lugs around a wheel are parented
+to that wheel's link, so the wheel joint turns them and the tread visibly rotates
+with no plugin and no animated texture. The lugs on the straight top and bottom
+runs belong to the chassis, so they do **not** scroll; making them scroll needs
+either a plugin stepping lug poses each tick, or an Ogre `scroll_anim` texture
+that gzweb would not animate. Lug pitch is derived from the lug ring radius so
+the runs and the wheels line up — change a lug dimension and they stop matching.
+
+Real track physics would mean Gazebo's `TrackedVehicle`/`TrackController`, which
+drive the vehicle themselves and would fight ArduPilotPlugin for the joints.
+ArduRover's skid steer already maps cleanly onto wheel velocity, which is what
+this whole control chain is built on.
+
+Repainting is one file: `sim/models/rover_core/materials/scripts/rover.material`.
+Colours have to live in a material script, not as `<ambient>`/`<diffuse>` on the
+visual — gzweb reads colour only from `material.script.name`, so inline RGB
+renders as plain white in the browser while still looking right to the camera
+sensors. Anything you change there needs `GZWEB_REDEPLOY=1` to reach the browser.
+
+The model was ported from a Gazebo Sim (SDF 1.9) original. If you go looking for
+that upstream version to compare, note that its `<servo_min>`/`<servo_max>`,
+`gz-sim-*` system plugins and `<pose degrees="true">` are all gz-sim-only and
+have no effect here; the header comment in `model.sdf` lists the full set of
+differences and why each one matters.
 
 `PHYSICS_RATE` (default 250) drives both the world's step rate and SITL's
 `SCHED_LOOP_RATE` from one place — they must match, or SITL reports

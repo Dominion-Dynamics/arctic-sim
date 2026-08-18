@@ -1,0 +1,71 @@
+# Skid-steer ground rover (sim/models/rover_core), flown as ArduRover.
+#
+# Loaded by sitl/entrypoint.sh as /params/<type>.parm for asset type `rover`.
+# Named for the TYPE, not the role. They happen to both be `rover` right now, so
+# renaming the role leaves this file still applying; adding a second ground-rover
+# TYPE is what would need its own parm.
+#
+# Adapted from the upstream model's parameter file. Two things were dropped on
+# the way in, both because this stack sets them elsewhere and a duplicate here
+# would silently win:
+#
+#   SCHED_LOOP_RATE  comes from PHYSICS_RATE via /tmp/rate.parm, which the
+#                    entrypoint loads LAST on purpose. Setting it here is how
+#                    copter.parm once produced "PreArm: Main loop slow" that no
+#                    .env change could fix.
+#   ARMING_CHECK     upstream relaxes it to 0 for bench testing. Left at the
+#                    default here: this rover navigates real terrain with a real
+#                    EKF origin, and the checks are what catch a bad spawn.
+
+# 1 = Rover. FRAME_TYPE is unused for skid steer -- what makes it skid is the
+# pair of throttle functions below, not the frame type.
+FRAME_CLASS      1
+FRAME_TYPE       0
+
+# Left track  -> SERVO1 -> ArduPilotPlugin channel 0 (motor_0, motor_1)
+SERVO1_FUNCTION  73
+SERVO1_MIN       1000
+SERVO1_MAX       2000
+SERVO1_TRIM      1500
+SERVO1_REVERSED  0
+
+# Right track -> SERVO3 -> ArduPilotPlugin channel 2 (motor_2, motor_3)
+SERVO3_FUNCTION  74
+SERVO3_MIN       1000
+SERVO3_MAX       2000
+SERVO3_TRIM      1500
+SERVO3_REVERSED  0
+
+# Speed profile matched to the vehicle's 0.6 m/s top speed. The model's drive
+# gain is sized to the same number (multiplier 10.0 at wheel radius 0.12 m), so
+# raising CRUISE_SPEED past ~0.6 just saturates the wheels and the rover falls
+# behind its own navigation controller.
+CRUISE_SPEED     0.5
+CRUISE_THROTTLE  60
+WP_SPEED         0.5
+MOT_THR_MIN      0
+MOT_THR_MAX      100
+MOT_SLEWRATE     100
+
+# GPS / EKF. SITL synthesises GPS from the FDM; the model's gps sensor is for
+# checking Gazebo against geodetic truth, not for navigation.
+GPS_TYPE         1
+EK3_ENABLE       1
+AHRS_EKF_TYPE    3
+
+# Starting tune, carried over from upstream. STILL UNVERIFIED, and specifically
+# more unverified than the plugin's drive gain is: a MANUAL run measured 0.29 m/s
+# against 0.275 m/s predicted, which validates the velocity PID in
+# sim/models/rover_core/model.sdf -- but MANUAL passes throttle straight through,
+# so none of the ATC_* gains below were exercised at all. They first do real work
+# in AUTO/GUIDED. Expect to retune there -- rover-quicktune.lua, or by hand.
+#
+# Which end to reach for: speed tracking lives in the plugin PID, heading lives
+# here. A rover that turns well but will not hold speed is a model.sdf problem,
+# not this file.
+ATC_SPEED_P      0.60
+ATC_SPEED_I      0.60
+ATC_STR_RAT_P    0.20
+ATC_STR_RAT_I    0.20
+ATC_STR_RAT_FF   0.20
+ATC_STR_ANG_P    2.00

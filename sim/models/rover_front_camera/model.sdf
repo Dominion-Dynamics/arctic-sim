@@ -1,0 +1,95 @@
+<?xml version="1.0" ?>
+<!--
+  Forward camera for rover_core, in its own model rather than as a sensor on the
+  rover's base_link.
+
+  Not a style choice. terrain/make_world.py finds camera models by looking for
+  "camera_stream" in a model's SDF, then rewrites <always_on> across the whole
+  file to honour CAMERAS. In rover_core/model.sdf that same substitution would
+  also hit the IMU, so CAMERAS=off would quietly take away the rover's attitude
+  source. Keeping the camera in a file that contains nothing else means the
+  rewrite can only touch the camera. iris_with_ardupilot and gimbal_small_2d are
+  split for exactly this reason.
+
+  <port> and <always_on> below are placeholders; make_world.py stamps this
+  asset's own cam_port (8600 + 10*slot) in at build time.
+-->
+<sdf version="1.6">
+  <model name="rover_front_camera">
+
+    <link name="base_link">
+      <!-- Welded to a 54 kg chassis by a fixed joint. Deliberately not
+           featherweight: a near-zero-inertia child on a fixed joint is what made
+           SITL fall over on the gimbal (see iris_with_ardupilot). 0.3 kg is
+           about right for a housing and lens anyway, and the rover's own
+           head_visual already draws the body this sits in. -->
+      <inertial>
+        <mass>0.3</mass>
+        <inertia>
+          <ixx>0.0004</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0004</iyy>
+          <iyz>0</iyz>
+          <izz>0.0004</izz>
+        </inertia>
+      </inertial>
+
+      <visual name="lens_visual">
+        <pose>0.02 0 0 0 1.5707963 0</pose>
+        <geometry>
+          <cylinder>
+            <radius>0.022</radius>
+            <length>0.03</length>
+          </cylinder>
+        </geometry>
+        <!-- Stock Gazebo/FlatBlack rather than a Rover/* name. gzweb resolves
+             colour by script NAME only, so this model would have to reach into
+             rover_core's material file to match its lens black exactly — a
+             cross-model dependency for a 2 cm cylinder. Inline RGB is not the
+             alternative: gzweb ignores it and renders white (see the note in
+             rover_core/model.sdf). -->
+        <material>
+          <script>
+            <uri>file://media/materials/scripts/gazebo.material</uri>
+            <name>Gazebo/FlatBlack</name>
+          </script>
+        </material>
+      </visual>
+
+      <sensor name="front_camera" type="camera">
+        <always_on>1</always_on>
+        <!-- 10 Hz, matching the towers. Every active camera is an OGRE render
+             pass, and without a GPU that pass competes with the cores ArduPilot
+             needs to hold lockstep — the README's "Main loop slow" trap. -->
+        <update_rate>10</update_rate>
+        <visualize>true</visualize>
+        <camera name="front">
+          <!-- 1.5 rad ~= 86 deg, the upstream model's value. -->
+          <horizontal_fov>1.5</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <!-- far 1500, not the upstream 100: at ground level on a 6.5 km site
+               the horizon and the target vessel are both well past 100 m, and a
+               100 m clip plane makes the rover's feed look like fog even with
+               FOG off. -->
+          <clip>
+            <near>0.05</near>
+            <far>1500</far>
+          </clip>
+        </camera>
+        <plugin name="camera_stream" filename="libCameraStreamPlugin.so">
+          <port>8650</port>
+          <label>rover front</label>
+          <quality>70</quality>
+          <shrink>1</shrink>
+          <sleep_when_idle>0</sleep_when_idle>
+        </plugin>
+      </sensor>
+    </link>
+
+  </model>
+</sdf>
