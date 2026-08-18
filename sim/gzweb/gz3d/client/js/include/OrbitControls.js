@@ -400,7 +400,10 @@ THREE.OrbitControls = function (object, domElement)
     }
     event.preventDefault();
 
-    if (event.shiftKey && event.button === 0)
+    // Rotate modifier: CTRL + left button (was SHIFT). `ctrlKey` is true for
+    // EITHER control key — a mouse event carries no key location, so left and
+    // right Ctrl cannot be told apart here.
+    if (event.ctrlKey && event.button === 0)
     {
       if (scope.noRotate === true)
       {

@@ -850,6 +850,39 @@ PANEL_JS = r"""
     followHooked = true;
   }
 
+  // Zoom-to-cursor and follow are incompatible, and follow has to win.
+  //
+  // GZ3D.Scene.onMouseScroll re-points controls.target at whatever the ray
+  // hits under the pointer, so a scroll over terrain moves the orbit centre
+  // kilometres away from the asset. updateFollowCamera then derives the camera
+  // offset from THAT point (offset = camera - target) before snapping the
+  // target back to the asset, so the camera lurches by the whole
+  // terrain-to-asset displacement and the dolly is lost inside the jump —
+  // which is why zooming did nothing while locked on, but works when free.
+  //
+  // Suppressing the retarget leaves controls.target on the asset, and
+  // OrbitControls' own wheel handler (a separate listener on the same element)
+  // still dollies relative to it — the un-followed zoom feel, centred on the
+  // thing you are following.
+  //
+  // Safe to wrap for the same reason the render hook is: gzscene registers the
+  // listener as `function(e){ that.onMouseScroll(e); }`, a property lookup on
+  // the instance per event, so there is no captured reference to miss.
+  var scrollHooked = false;
+  function hookScroll(sc){
+    if(scrollHooked || !sc || typeof sc.onMouseScroll !== 'function') return;
+    var orig = sc.onMouseScroll.bind(sc);
+    sc.onMouseScroll = function(event){
+      if(followName){
+        // Still swallow the page scroll the original would have eaten.
+        if(event && event.preventDefault) event.preventDefault();
+        return;
+      }
+      return orig(event);
+    };
+    scrollHooked = true;
+  }
+
   function stopFollow(){
     // Leave the render hook in place: it is a no-op with no target, and
     // re-wrapping on every toggle would stack wrappers.
@@ -873,6 +906,7 @@ PANEL_JS = r"""
     if(offsetVec().length() < 3){ offsetVec().set(10, 10, 6); }
     followName = name;
     hookFollow(sc);
+    hookScroll(sc);
     anote('following ' + name);
     markFollow();
   }
