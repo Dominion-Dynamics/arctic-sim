@@ -68,8 +68,8 @@
           <!-- 1.5 rad ~= 86 deg, the upstream model's value. -->
           <horizontal_fov>1.5</horizontal_fov>
           <image>
-            <width>640</width>
-            <height>480</height>
+            <width>960</width>
+            <height>720</height>
             <format>R8G8B8</format>
           </image>
           <!-- far 1500, not the upstream 100: at ground level on a 6.5 km site

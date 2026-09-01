@@ -209,7 +209,7 @@
         <visualize>true</visualize>
         <camera name="fpv">
           <horizontal_fov>1.204</horizontal_fov>
-          <image><width>640</width><height>360</height><format>R8G8B8</format></image>
+          <image><width>1280</width><height>720</height><format>R8G8B8</format></image>
           <clip><near>0.1</near><far>1500</far></clip>
         </camera>
         <plugin name="camera_stream" filename="libCameraStreamPlugin.so">

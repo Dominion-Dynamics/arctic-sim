@@ -74,7 +74,7 @@ def _base():
 
 
 def tower_sdf(name, fdm_addr="127.0.0.1", fdm_port=9012,
-              listen_addr="0.0.0.0", eo=(640, 360), cam_port=8630,
+              listen_addr="0.0.0.0", eo=(1280, 720), cam_port=8630,
               cameras="live"):
     """SDF for one camera tower, driven by AntennaTracker over fdm_port."""
     fdm_port_out = fdm_port + 1

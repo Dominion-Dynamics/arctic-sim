@@ -46,3 +46,21 @@ ARMING_CHECK 0
 # pan/tilt commands over MAVLink, which is what a camera tower wants anyway.
 # Switch to AUTO from a GCS once there is a vehicle to track.
 INITIAL_MODE 0
+
+# Pin the EKF to one compass.
+#
+# The towers' headings wandered tens of degrees with the head physically still:
+# EKF3 was thrashing between the three SITL compasses (89 switches in 10 min on
+# tower-1, 49 on tower-2), and each uncalibrated compass yields a different yaw,
+# so the estimate jumped every time the selection flipped.
+#
+# Only the trackers do this, and the reason is that they never move: an aircraft
+# gets yaw observability from GPS course, so its EKF barely leans on the
+# magnetometer (the copter and plane logged ZERO switches over the same window).
+# A stationary tracker has no course to fuse, so yaw rests entirely on a compass
+# whose siblings disagree — and the health checks keep changing their minds.
+#
+# Disabling 2 and 3 leaves nothing to switch to. SITL compasses are synthetic and
+# identical in truth, so there is no redundancy being given up here.
+COMPASS_USE2 0
+COMPASS_USE3 0

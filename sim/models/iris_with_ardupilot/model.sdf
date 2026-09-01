@@ -7,7 +7,18 @@
 
     <include>
       <uri>model://gimbal_small_2d</uri>
-      <pose>0 -0.01 0.070 1.57 0 1.57</pose>
+      <!-- Roll 1.9199 rather than 1.5708 aims the camera 20 deg DOWN while
+           keeping it dead ahead (azimuth 0.00). Roll is the elevation term
+           here, not pitch: the gimbal's own sensor pose (-1.57 -1.57 0) has
+           already rotated the optical frame, after which the mount's pitch
+           term steers azimuth and its yaw term only spins the image. Verified
+           by composing the two rotations — 1.5708 gives elev 0.00, 1.9199
+           gives elev -20.00, az unchanged.
+           To change the downtilt: elevation_deg = -(roll - 1.5708) in radians,
+           so 10 deg down = 1.7453, 30 deg down = 2.0944. Keep
+           cfg/quadcopter.yaml's mount_pitch_deg in step or COP's FOV cone will
+           point somewhere the camera does not. -->
+      <pose>0 -0.01 0.070 1.9199 0 1.57</pose>
     </include>
 
     <!--
@@ -17,27 +28,9 @@
       companion's gimbal_bridge. Reusing this existing joint (rather than
       adding a new pan_link) avoids the inertia that crashed SITL before.
     -->
-    <joint name="iris_gimbal_mount" type="revolute">
+    <joint name="iris_gimbal_mount" type="fixed">
       <parent>iris::base_link</parent>
       <child>gimbal_small_2d::base_link</child>
-      <physics>
-        <ode>
-          <implicit_spring_damper>1</implicit_spring_damper>
-        </ode>
-      </physics>
-      <axis>
-        <xyz>0 0 1</xyz>
-        <use_parent_model_frame>true</use_parent_model_frame>
-        <dynamics>
-          <damping>0.5</damping>
-        </dynamics>
-        <limit>
-          <lower>-1.5708</lower>
-          <upper>1.5708</upper>
-          <effort>10</effort>
-          <velocity>-1</velocity>
-        </limit>
-      </axis>
     </joint>
     
     <!-- visual markers for debugging
