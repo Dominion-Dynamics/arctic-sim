@@ -36,7 +36,52 @@ let materialScriptsMessage = {};
 let isConnected = false;
 
 /**
+ * Content types by extension. Without one the browser sniffs, and a response
+ * with no type and no validators is not a candidate for the HTTP cache at all.
+ */
+const CONTENT_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js':   'application/javascript; charset=utf-8',
+  '.css':  'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png':  'image/png',
+  '.jpg':  'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif':  'image/gif',
+  '.svg':  'image/svg+xml',
+  '.ico':  'image/x-icon',
+  '.dae':  'model/vnd.collada+xml',
+  '.stl':  'model/stl',
+  '.obj':  'text/plain; charset=utf-8',
+  '.mtl':  'text/plain; charset=utf-8',
+  '.woff': 'font/woff',
+  '.woff2':'font/woff2',
+  '.ttf':  'font/ttf'
+};
+
+/**
+ * How long a client may reuse an asset without asking. 0 (the default) means
+ * every request is revalidated, which still costs a round trip but no body —
+ * the assets under http/client/assets are regenerated whenever the terrain is
+ * rebuilt, so serving them from cache unconditionally would show stale imagery
+ * after `make terrain`. Raise it (seconds) on a link where the round trips
+ * themselves hurt more than a stale texture does.
+ */
+const assetMaxAge = parseInt(process.env.GZWEB_ASSET_MAX_AGE || '0', 10) || 0;
+
+/**
  * Callback to serve static files
+ *
+ * Every response carries validators (ETag + Last-Modified) and an explicit
+ * Cache-Control, and a matching conditional request is answered 304 with no
+ * body. Without them the browser re-downloaded the whole scene on every reload:
+ * ~71 MB for fort_ross, of which albedo.png alone is 26 MB and iris.dae 21 MB.
+ *
+ * index.html and gz3d.gui.js are rewritten by the entrypoint at container
+ * start (fog density, control panel), so nothing here may be cached without
+ * revalidating — the ETag is derived from mtime and size, which both move when
+ * the entrypoint edits them.
+ *
  * @param req Request
  * @param res Response
  */
@@ -48,24 +93,77 @@ let staticServe = function(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, GET, POST, PUT, DELETE');
   res.setHeader('Access-Control-Allow-Headers', '*');
 
-  let fileLoc = path.resolve(staticBasePath);
+  const root = path.resolve(staticBasePath);
 
-  if (req.url === '/')
-    req.url = '/index.html';
+  // Strip the query string and decode before touching the filesystem: gzweb's
+  // own asset URLs are clean, but a percent-encoded path would otherwise 404.
+  let urlPath;
+  try {
+    urlPath = decodeURIComponent(req.url.split('?')[0].split('#')[0]);
+  } catch (e) {
+    res.writeHead(400, 'Bad Request');
+    return res.end('400: Bad Request');
+  }
 
-  fileLoc = path.join(fileLoc, req.url);
+  if (urlPath === '/')
+    urlPath = '/index.html';
 
-  fs.readFile(fileLoc, function(err, data) {
-    if (err) {
-        res.writeHead(404, 'Not Found');
-        res.write('404: File Not Found!');
-        return res.end();
+  const fileLoc = path.join(root, urlPath);
+
+  // Containment check. path.join already normalises away `..`, but only
+  // comparing the result to the root proves the request cannot escape it —
+  // this server is reachable from wherever SIM_BIND points.
+  if (fileLoc !== root && fileLoc.indexOf(root + path.sep) !== 0) {
+    res.writeHead(403, 'Forbidden');
+    return res.end('403: Forbidden');
+  }
+
+  fs.stat(fileLoc, function(err, stat) {
+    if (err || !stat.isFile()) {
+      res.writeHead(404, 'Not Found');
+      return res.end('404: File Not Found!');
     }
 
+    // Weak-free validator: size and mtime together change on any regeneration
+    // of an asset, including the entrypoint's in-place edits to the bundle.
+    const etag = '"' + stat.size.toString(16) + '-' +
+        stat.mtime.getTime().toString(16) + '"';
+    const lastModified = stat.mtime.toUTCString();
+    const isAsset = urlPath.indexOf('/assets/') === 0;
+
+    res.setHeader('ETag', etag);
+    res.setHeader('Last-Modified', lastModified);
+    res.setHeader('Cache-Control', isAsset ?
+        'public, max-age=' + assetMaxAge + ', must-revalidate' : 'no-cache');
+
+    const ext = path.extname(fileLoc).toLowerCase();
+    if (CONTENT_TYPES[ext])
+      res.setHeader('Content-Type', CONTENT_TYPES[ext]);
+
+    // 304 when the client already holds this exact file. ETag wins over the
+    // date when both are sent, per RFC 7232.
+    const inm = req.headers['if-none-match'];
+    const ims = req.headers['if-modified-since'];
+    const fresh = inm ? inm.split(',').some(t => t.trim() === etag)
+        : (ims ? Math.floor(stat.mtime.getTime() / 1000) <=
+                 Math.floor(Date.parse(ims) / 1000) : false);
+
+    if (fresh) {
+      res.writeHead(304);
+      return res.end();
+    }
+
+    res.setHeader('Content-Length', stat.size);
     res.statusCode = 200;
 
-    res.write(data);
-    return res.end();
+    // Streamed, not fs.readFile: a 26 MB albedo.png was previously buffered
+    // whole into the heap for every request, and two clients loading at once
+    // doubled that.
+    const stream = fs.createReadStream(fileLoc);
+    stream.on('error', function() {
+      res.destroy();
+    });
+    stream.pipe(res);
   });
 };
 

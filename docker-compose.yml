@@ -104,6 +104,12 @@ services:
       WORLD_NAME: ${SITE_NAME:-fort_ross}
       GZWEB_REDEPLOY: ${GZWEB_REDEPLOY:-0}
       CONTROL_PORT: ${CONTROL_PORT:-8090}
+      # Seconds a browser may reuse a converted asset without revalidating.
+      # 0 means every asset is revalidated on reload — no bytes move, but each
+      # one costs a round trip, which is free on localhost and is not over a
+      # tailnet. Raise it there; a terrain rebuild will not be picked up until
+      # it expires.
+      GZWEB_ASSET_MAX_AGE: ${GZWEB_ASSET_MAX_AGE:-0}
     volumes:
       # Only models/ and worlds/ are mounted. Mounting all of ./sim would
       # shadow the image's /sim/gzweb and wipe out its node_modules.
