@@ -1,0 +1,56 @@
+# AWS instance overlay for the arctic-sim fleet.
+#
+# INSTALL AS A SYMLINK from the repo root, never a copy:
+#
+#     ln -sfn deploy/aws/docker-compose.override.yml docker-compose.override.yml
+#
+# Only the symlink is instance-local; the content is version controlled here, so
+# a fix made once reaches every box on the next sync. Add the symlink itself to
+# your rsync excludes, or --delete will remove it:
+#
+#     rsync -az --delete --exclude .git --exclude docker-compose.override.yml ...
+#
+# WHY AN OVERRIDE AND NOT `COMPOSE_FILE` IN .env
+#
+# Compose auto-loads docker-compose.override.yml on EVERY bare `docker compose`
+# invocation. That matters because control/server.py:46 shells out to bare
+# `docker compose` (cwd=REPO) for /api/reset and /api/rebuild.
+#
+# On 2026-09-09 a panel Reset recreated sim + assets without the GPU overlay and
+# the T4 dropped out: gzserver fell back to llvmpipe and rendered every camera on
+# the CPU. Nothing errored. The only symptoms were a real-time factor near 0.68
+# and "PreArm: Main loop slow (171Hz < 250Hz)".
+#
+# COMPOSE_FILE in .env also works, but .env is rewritable by competitors through
+# /api/env (server.py:102 allows EDITABLE | existing_keys), so the GPU would
+# depend on a file they can edit. This file is outside that blast radius.
+services:
+  # --- GPU overlay: keep in step with ../../docker-compose.gpu.yml ---
+  # Inlined rather than referenced because Compose auto-loads exactly one
+  # override file, and it must be this one.
+  sim:
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      # `graphics` and `display` are NOT in the default capability set. Without
+      # them the toolkit injects CUDA and no GLX vendor, glvnd finds only mesa,
+      # and you get llvmpipe on a machine with a T4 in it.
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display
+      __GLX_VENDOR_LIBRARY_NAME: nvidia
+      # Read by sim/entrypoint.sh: use the host's Xorg, do not start Xvfb.
+      USE_HOST_X: "1"
+      HOST_DISPLAY: ":0"
+    volumes:
+      # The X server runs on the host (arctic-xorg.service). This socket is the
+      # only channel into it; that server has -nolisten tcp.
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+
+  # --- rover retired 2026-09-09 ---
+  # A profile keeps it out of `docker compose config --services`, which is what
+  # control/server.py:asset_services() enumerates — so a panel Reset will not
+  # resurrect it. Dropping ASSET_n from .env alone is not enough: the container
+  # would still start, idle, and hold host ports 5810 and 14600-14601.
+  #
+  # To bring it back: restore ASSET_n in .env and delete this block.
+  rover:
+    profiles: ["retired"]

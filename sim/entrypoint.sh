@@ -32,7 +32,7 @@ grep -o '<latitude_deg>[^<]*' "${WORLD}" | head -1 | sed 's/^/[sim] /' || true
 # framebuffer — OGRE ends up on llvmpipe, which is fine when CAMERAS=off but is
 # the difference between usable and unusable once camera sensors render every
 # frame. USE_HOST_X borrows an Xorg server running on a real GPU outside this
-# container (see deploy/aws/), which is the only way OGRE 1.9 reaches the card:
+# container (see deploy/aws/README.md), the only way OGRE 1.9 reaches the card:
 # it speaks GLX, so an EGL-only headless context is not an option.
 if [[ "${USE_HOST_X:-0}" == "1" ]]; then
     export DISPLAY="${HOST_DISPLAY:-:0}"

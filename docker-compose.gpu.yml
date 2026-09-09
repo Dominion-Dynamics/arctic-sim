@@ -1,6 +1,9 @@
 # GPU overlay for the sim container. Used on the EC2 box only:
 #
-#   docker compose -f docker-compose.yml -f deploy/aws/docker-compose.gpu.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# On an EC2 instance this is applied through deploy/aws/docker-compose.override.yml
+# instead, which Compose auto-loads so no -f flag can be forgotten. See that file.
 #
 # Only `sim` changes. The SITL containers are pure CPU — ArduPilot renders
 # nothing — and the terrain builder is GDAL, which is also CPU here.
