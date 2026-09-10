@@ -213,7 +213,25 @@ def tower_sdf(name, fdm_addr="127.0.0.1", fdm_port=9012,
       <connectionTimeoutMaxCount>5</connectionTimeoutMaxCount>
       <lock_step>1</lock_step>
       <modelXYZToAirplaneXForwardZDown>0 0 0 3.141593 0 0</modelXYZToAirplaneXForwardZDown>
-      <gazeboXYZToNED>0 0 0 3.141593 0 0</gazeboXYZToNED>
+      <!-- Georeferenced world: +X is grid EAST, +Y grid NORTH, and the grid is
+           rotated from true north by the convergence (about -49.8 deg at Fort
+           Ross). The stock transform assumes X-North/Y-West, which put every
+           reported lat/lon 90 deg out plus the convergence. This makes the
+           plugin read the world's own <heading_deg>, so each site gets its own
+           convergence with nothing to configure.
+
+           NO <gazeboXYZToNED> HERE ON PURPOSE. The patch only derives the
+           transform when that element is ABSENT (an explicit value is set
+           after the default and therefore wins), so declaring the stock
+           0 0 0 pi 0 0 silently opts the model out.
+
+           The towers used to declare exactly that, while the aircraft and
+           rover did not — so the towers alone reported rotated positions.
+           Measured against where make_world places them: tower-1 was 1135 m
+           out on bearing 110 deg, tower-2 1569 m out on bearing 265 deg. They
+           rendered over a kilometre from where they stand in the sim, and the
+           tracker's own aiming inherits the same error. -->
+      <worldFrame>ENU</worldFrame>
       <imuName>imu_sensor</imuName>
       <control channel="0">
         <type>POSITION</type><jointName>pan_joint</jointName>
