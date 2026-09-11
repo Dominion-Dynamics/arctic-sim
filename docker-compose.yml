@@ -115,6 +115,10 @@ services:
       # tailnet. Raise it there; a terrain rebuild will not be picked up until
       # it expires.
       GZWEB_ASSET_MAX_AGE: ${GZWEB_ASSET_MAX_AGE:-0}
+    # The asset containers already restart; without this the SIM does not, so a
+    # host reboot leaves four SITL vehicles running against no world at all.
+    # That is exactly what a Terraform user_data edit did to SIM-1.
+    restart: unless-stopped
     volumes:
       # Only models/ and worlds/ are mounted. Mounting all of ./sim would
       # shadow the image's /sim/gzweb and wipe out its node_modules.
@@ -139,6 +143,7 @@ services:
       dockerfile: control/Dockerfile
     image: ${REGISTRY:-}arctic-sim-control:${IMAGE_TAG:-latest}
     container_name: arctic-control
+    restart: unless-stopped
     depends_on:
       - sim
     environment:
