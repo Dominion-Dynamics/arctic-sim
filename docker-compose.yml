@@ -21,7 +21,7 @@ x-asset: &asset
       VEHICLES: ${SITL_VEHICLES:-copter rover plane antennatracker}
   # One tag for all of them, so ArduPilot is compiled once and every other
   # asset is a cache hit rather than another full build.
-  image: arctic-sim-sitl:latest
+  image: ${REGISTRY:-}arctic-sim-sitl:${IMAGE_TAG:-latest}
   depends_on:
     - sim
   restart: unless-stopped
@@ -96,6 +96,11 @@ services:
     build:
       context: .
       dockerfile: sim/Dockerfile
+    # Spelled out rather than left to compose's project-name default, which
+    # produced exactly this string anyway — naming it is what lets REGISTRY
+    # point the same compose file at ECR. Unset, this stays `arctic-sim-sim`
+    # and a developer machine builds locally as before.
+    image: ${REGISTRY:-}arctic-sim-sim:${IMAGE_TAG:-latest}
     container_name: arctic-sim
     depends_on:
       terrain:
@@ -132,6 +137,7 @@ services:
     build:
       context: .
       dockerfile: control/Dockerfile
+    image: ${REGISTRY:-}arctic-sim-control:${IMAGE_TAG:-latest}
     container_name: arctic-control
     depends_on:
       - sim
