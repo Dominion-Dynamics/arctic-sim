@@ -533,9 +533,38 @@ def ground_under_footprint(dem: str, meta: dict, x: float, y: float,
     """
     from osgeo import gdal
     gdal.UseExceptions()
-    ds = gdal.Open(dem)                 # held: a temporary would be freed
-    z = ds.GetRasterBand(1).ReadAsArray()
+    # Sample the HEIGHTMAP, not the DEM.
+    #
+    # Gazebo renders and collides the 8-bit PNG, scaled by the <heightmap>
+    # element as pos_z + byte/255 * size_z (pz=zmin, ez=zrange in MODEL_SDF).
+    # The GeoTIFF `dem` carries full precision and disagrees with it by up to
+    # half a quantisation step (~0.5 m; 0.05 m at tower-2). Placing a model from
+    # the DEM therefore puts it slightly off the surface the physics engine
+    # actually has -- and when that lands on the LOW side the feet start
+    # underground, which is precisely how the legs disappeared.
+    # Sits beside the DEM the caller resolved, whatever OUT_ROOT points at.
+    png = Path(dem).with_name("heightmap.png")
+    ds = gdal.Open(str(png))            # held: a temporary would be freed
+    raw = ds.GetRasterBand(1).ReadAsArray()
+    elev = meta["elevation_m"]
+    zmin, zrange = float(elev["min"]), float(elev["range"])
     g, sp, half = meta["grid"], meta["spacing_m"], meta["extent_m"] / 2.0
+
+    def z_at(r: int, c: int) -> float:
+        # +1: the UPPER bound of the sample's quantisation bucket.
+        #
+        # An 8-bit heightmap only says the surface is somewhere in
+        # [b, b+1) levels -- 0.989 m wide here. The generator read the lower
+        # edge; gzweb draws the upper. Measured at the same pixel (row 448,
+        # col 656, byte 41): generator 40.535 m, gzweb 41.524 m, exactly one
+        # step apart. Reading the lower edge put every tower up to a step
+        # underground in the browser, which is where the legs went.
+        #
+        # Taking the upper bound clears the surface in either renderer. The
+        # cost is at most one step of float against the fine-grained DEM, and
+        # a tower is pinned by a world_fixed joint rather than resting on
+        # contact, so that costs nothing physically.
+        return zmin + (float(raw[r, c]) + 1.0) * zrange / 255.0
 
     def bilinear(px: float, py: float) -> float:
         fc = (px + half) / sp
@@ -544,8 +573,8 @@ def ground_under_footprint(dem: str, meta: dict, x: float, y: float,
         r0 = max(0, min(g - 2, int(math.floor(fr))))
         tc = min(1.0, max(0.0, fc - c0))
         tr = min(1.0, max(0.0, fr - r0))
-        top = float(z[r0, c0]) * (1 - tc) + float(z[r0, c0 + 1]) * tc
-        bot = float(z[r0 + 1, c0]) * (1 - tc) + float(z[r0 + 1, c0 + 1]) * tc
+        top = z_at(r0, c0) * (1 - tc) + z_at(r0, c0 + 1) * tc
+        bot = z_at(r0 + 1, c0) * (1 - tc) + z_at(r0 + 1, c0 + 1) * tc
         return top * (1 - tr) + bot * tr
 
     # Centre plus a ring at the foot radius. The feet are the only contact
@@ -555,7 +584,36 @@ def ground_under_footprint(dem: str, meta: dict, x: float, y: float,
         pts += [(x + radius * math.cos(2 * math.pi * i / samples),
                  y + radius * math.sin(2 * math.pi * i / samples))
                 for i in range(samples)]
-    return max(bilinear(px, py) for px, py in pts)
+    surface = max(bilinear(px, py) for px, py in pts)
+
+    # Also clear the surface GZWEB DRAWS, which is not the one Gazebo simulates.
+    #
+    # gzweb builds a THREE.PlaneGeometry of 512 segments from this 1025-sample
+    # heightmap: its vertices are every OTHER pixel, joined by flat triangles
+    # spanning VIEW_STEP cells. Inside such a cell the drawn surface is a linear
+    # span between the four corner pixels, which near a ridge sits ABOVE the
+    # fine-grained surface -- by up to 1.5 m here.
+    #
+    # Physics was always happy (the model held its pose with zero rotation and
+    # no contact); the tower was buried only in the browser, which is the view
+    # competitors actually use. Measured at tower-1: drawn 41.07 against a
+    # fine-grained 39.92, so the legs (0 to 0.55 m) were entirely swallowed.
+    #
+    # Taking the corners of the enclosing coarse cell bounds the drawn triangle
+    # exactly -- it can never exceed its own corners -- so this clears the drawn
+    # surface without the over-lift a blanket radius search would cause.
+    VIEW_STEP = 2
+    vsp = sp * VIEW_STEP
+    fc = (x + half) / vsp
+    fr = (half - y) / vsp
+    c0 = int(math.floor(fc)) * VIEW_STEP
+    r0 = int(math.floor(fr)) * VIEW_STEP
+    for dr in (0, VIEW_STEP):
+        for dc in (0, VIEW_STEP):
+            rr = max(0, min(g - 1, r0 + dr))
+            cc = max(0, min(g - 1, c0 + dc))
+            surface = max(surface, z_at(rr, cc))
+    return surface
 
 
 def ground_at(dem: str, meta: dict, x: float, y: float) -> float:
