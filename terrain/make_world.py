@@ -30,7 +30,7 @@ from pathlib import Path
 # Bind-mounted by compose: /out holds generated terrain, /sim the Gazebo tree.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from course import pick_water, plan_course
-from tower import write_tower
+from tower import write_tower, FOOT_R
 from fleet import parse_assets, describe
 
 OUT_ROOT = Path(os.environ.get("ARCTIC_OUT_ROOT", "/out"))
@@ -300,7 +300,11 @@ def place_assets(meta, dem, models_root, default_xy, spawn_offset,
                         fdm_port=a["fdm_port"], listen_addr=listen_addr,
                         cam_port=(0 if cameras == "off" else a["cam_port"]),
                         cameras=cameras)
-            z = gz
+            # Rest on the highest foot, not on the centre point -- see
+            # ground_under_footprint(). A tower placed at the centre height
+            # buries its uphill foot and the contact force tips the model.
+            z = (ground_under_footprint(dem, meta, xy[0], xy[1], FOOT_R)
+                 + TOWER_CLEARANCE_M) if dem else gz
         else:
             model = a["gz_model"]
             z = gz + spawn_offset
@@ -493,6 +497,65 @@ def resolve_point(text: str, meta: dict):
     if not as_xy:
         print(f"  WARNING: {v} is outside lat/lon range; treating as world metres")
     return (v[0], v[1])
+
+
+# Lift a tower this far above the surface it stands on. Absorbs the last few
+# centimetres of disagreement between the DEM we sample and the 8-bit heightmap
+# Gazebo actually collides against (quantisation ~0.99 m/step, so ~0.05 m here).
+# Small enough to be invisible on a 2.5 m mast, large enough that a foot never
+# starts inside the hill.
+TOWER_CLEARANCE_M = 0.15
+
+
+def ground_under_footprint(dem: str, meta: dict, x: float, y: float,
+                           radius: float, samples: int = 12) -> float:
+    """Highest ground under a circular footprint, sampled the way Gazebo reads it.
+
+    ground_at() answers "how high is the terrain at this POINT", with
+    nearest-neighbour sampling. Neither part suits a tripod:
+
+      * A tower is not a point. Its feet sit at `radius` from the mast, so on a
+        slope the uphill foot is higher than the centre. Placing the model at
+        the centre height buries that foot.
+      * Gazebo INTERPOLATES between heightmap samples; nearest-neighbour can be
+        up to half a cell (3.2 m here) away from the point actually under the
+        model, which on a slope is another few tenths of a metre.
+
+    Individually those are small. Together, on the 9 deg slope where tower-1 was
+    moved to, one foot ended up far enough inside the hill that contact forces
+    overpowered the model's world_fixed joint -- which is a solver constraint,
+    not a rigid weld. The tower crept up 0.36 m and rolled 4.2 deg, and rendered
+    as a leaning, half-sunk mast.
+
+    Taking the MAXIMUM of the bilinear surface over the footprint puts the model
+    on its highest foot, which is where a real tripod rests. The others are then
+    clear of the ground rather than inside it.
+    """
+    from osgeo import gdal
+    gdal.UseExceptions()
+    ds = gdal.Open(dem)                 # held: a temporary would be freed
+    z = ds.GetRasterBand(1).ReadAsArray()
+    g, sp, half = meta["grid"], meta["spacing_m"], meta["extent_m"] / 2.0
+
+    def bilinear(px: float, py: float) -> float:
+        fc = (px + half) / sp
+        fr = (half - py) / sp
+        c0 = max(0, min(g - 2, int(math.floor(fc))))
+        r0 = max(0, min(g - 2, int(math.floor(fr))))
+        tc = min(1.0, max(0.0, fc - c0))
+        tr = min(1.0, max(0.0, fr - r0))
+        top = float(z[r0, c0]) * (1 - tc) + float(z[r0, c0 + 1]) * tc
+        bot = float(z[r0 + 1, c0]) * (1 - tc) + float(z[r0 + 1, c0 + 1]) * tc
+        return top * (1 - tr) + bot * tr
+
+    # Centre plus a ring at the foot radius. The feet are the only contact
+    # points, but the centre guards the case of a local rise under the mast.
+    pts = [(x, y)]
+    if radius > 0.0:
+        pts += [(x + radius * math.cos(2 * math.pi * i / samples),
+                 y + radius * math.sin(2 * math.pi * i / samples))
+                for i in range(samples)]
+    return max(bilinear(px, py) for px, py in pts)
 
 
 def ground_at(dem: str, meta: dict, x: float, y: float) -> float:
