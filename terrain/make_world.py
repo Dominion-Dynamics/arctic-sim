@@ -327,6 +327,30 @@ def place_assets(meta, dem, models_root, default_xy, spawn_offset,
     return "".join(blocks), roster
 
 
+def grid_per_ground(meta) -> float:
+    """Projected (grid) metres per world metre.
+
+    Under --true-scale, build_terrain samples the DEM over `extent * k` GRID
+    metres so the heightmap's `extent` spans that many metres of REAL GROUND
+    (point_scale_factor: k is grid metres per ground metre, ~0.9942 here). World
+    metres are therefore ground metres, and converting between world XY and
+    EPSG:3413 has to carry k:
+
+        projected_offset = world_xy * k
+        world_xy         = projected_offset / k
+
+    Omitting it is self-consistent in BOTH directions, so a lat/lon round-trips
+    cleanly and looks right — while every asset sits displaced against the
+    TERRAIN, which was built with k applied. The error is proportional to
+    distance from the world centre: 9.6 m at tower-1, 13.3 m at tower-2, 19 m at
+    the 3250 m edge.
+
+    Without --true-scale the heightmap spans `extent` grid metres, world metres
+    ARE grid metres, and k is 1.
+    """
+    return float(meta.get("scale_factor", 1.0)) if meta.get("true_scale") else 1.0
+
+
 def world_to_lonlat(meta):
     """Return f(x, y) -> (lat, lon), or None if the projection is unavailable.
 
@@ -343,9 +367,11 @@ def world_to_lonlat(meta):
         b = meta["bounds_3413"]
         cx = (b["xmin"] + b["xmax"]) / 2.0
         cy = (b["ymin"] + b["ymax"]) / 2.0
+        k = grid_per_ground(meta)
 
         def f(x, y):
-            lo, la, *_ = tr.TransformPoint(cx + x, cy + y)
+            # World metres are GROUND metres; the projection wants GRID metres.
+            lo, la, *_ = tr.TransformPoint(cx + x * k, cy + y * k)
             return (la, lo)
         return f
     except Exception as e:
@@ -459,7 +485,11 @@ def resolve_point(text: str, meta: dict):
         tr = osr.CoordinateTransformation(src, dst)
         px, py, *_ = tr.TransformPoint(v[1], v[0])
         b = meta["bounds_3413"]
-        return (px - (b["xmin"] + b["xmax"]) / 2, py - (b["ymin"] + b["ymax"]) / 2)
+        # The transform yields GRID metres; the world is in GROUND metres. The
+        # inverse of world_to_lonlat — see grid_per_ground().
+        k = grid_per_ground(meta)
+        return ((px - (b["xmin"] + b["xmax"]) / 2) / k,
+                (py - (b["ymin"] + b["ymax"]) / 2) / k)
     if not as_xy:
         print(f"  WARNING: {v} is outside lat/lon range; treating as world metres")
     return (v[0], v[1])
